@@ -143,3 +143,14 @@ start-all.cmd
 stop-all.cmd
 dev/.weight-task
 dev/.shots-weight-task
+
+# ── 本机 UI 试验素材（2026-10-25 加入）──────────────────────────────
+# bg.gif / bg2.gif 各 28MB，是背景图功能的试验素材。背景实际走 localStorage 里的
+# dataURL（见 components/common/BackgroundApplier.tsx），源码里**没有任何** bg*.gif
+# 引用 ⇒ 属死文件。一旦提交，56MB 会永久留在 git 历史里，且 clone 代价转嫁给所有人。
+web/public/bg.gif
+web/public/bg2.gif
+# boot.sh / run.sh 里写死了本机绝对路径（/Users/xcyuzl./...，含网关参考仓库位置），
+# 对他人无意义。要开放给协作者时，先把路径改成读 .env / 相对路径再提交。
+/boot.sh
+/run.sh
