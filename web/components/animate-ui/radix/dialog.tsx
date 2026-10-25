@@ -125,32 +125,33 @@ function DialogContent({
           <DialogOverlay asChild forceMount>
             <motion.div
               key="dialog-overlay"
+              /* ★ 遮罩原来是 duration:0（瞬现）⇒ 与内容的淡入不同步 ⇒ 闪感被放大 ✗
+                 改成 120ms 淡入 ✓ 比内容短一档 ⇒ 视觉上"先暗后亮"更自然 ✓ */
               initial={{opacity: 0}}
               animate={{opacity: 1}}
               exit={{opacity: 0}}
-              transition={{duration: 0}}
+              transition={{duration: 0.12, ease: 'easeOut'}}
             />
           </DialogOverlay>
           <DialogPrimitive.Content asChild forceMount {...props}>
             <motion.div
               key="dialog-content"
               data-slot="dialog-content"
-              initial={{
-                opacity: 0,
-                scale: 0.95,
-                transform: `perspective(500px) ${rotateAxis}(${initialRotation})`,
-              }}
-              animate={{
-                opacity: 1,
-                scale: 1,
-                transform: `perspective(500px) ${rotateAxis}(0deg)`,
-              }}
-              exit={{
-                opacity: 0,
-                scale: 0.95,
-                transform: `perspective(500px) ${rotateAxis}(${initialRotation})`,
-              }}
-              transition={{...transition, duration: 0.15, ease: 'easeOut'}}
+              /* ★★★ 2026-10-24 修复移动端"弹窗闪一下"✗
+                 原因：原来是 3D 翻转入场
+                   `perspective(500px) rotateX(20deg)` + `scale(0.95)`
+                 ⇒ ① `perspective` 强制新建 **3D 合成层** ✓
+                    ② 叠加 `backdrop-blur` / `bg-backdrop` ⇒ 移动端 GPU 需要**两帧**才稳定 ✓
+                    ③ 而动画只有 **150ms** ⇒ 第二帧到位时动画已结束 ⇒ 视觉上"闪一下" ✓
+                 ⇒ 改成**只动 opacity + translateY**：
+                    · 无 3D 变换 ⇒ 不新建合成层 ✓
+                    · `translateY` 走合成器 ⇒ 不触发 layout ✓
+                    · 220ms 略长于原来 ⇒ 有足够帧数完成 ✓
+                 ★ 视觉上仍是从上方轻落，只是去掉了立体翻转 ✓ */
+              initial={{opacity: 0, y: -8}}
+              animate={{opacity: 1, y: 0}}
+              exit={{opacity: 0, y: -8}}
+              transition={{duration: 0.22, ease: 'easeOut'}}
               className={cn(
                   // 背景使用不透明色：半透明会让背后遮罩透出，与不透明的 header/footer
                   // 形成明暗分界，看起来像「双层边框」。同时只保留一条 border，

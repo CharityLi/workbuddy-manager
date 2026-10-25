@@ -50,6 +50,7 @@ import type {
   RequestLog,
   SecurityConfig,
   StatsSummary,
+  CacheRate,
   TaskLogResponse,
   TaskRunStatus,
   UpdateCheck,
@@ -591,6 +592,12 @@ export const logApi = {
 export const statsApi = {
   /** realm 非空时只统计该版本（界面按版本切换时传） */
   summary: (realm?: Realm) => get<StatsSummary>('/api/stats/summary', {realm}),
+  /**
+   * 缓存命中率（2026-10-23 ✓）—— 读网关 request-logs JSONL ✓
+   * ★ 路径是 `/api/cache-rate` 而不是 `/api/stats/cache-rate`：
+   *   cache_rate router 的 include prefix 只有 `/api` ✓
+   */
+  cacheRate: (days = 1) => get<CacheRate>('/api/cache-rate', {days}),
   daily: (days = 30, realm?: Realm) => get<UsagePoint[]>('/api/stats/daily', {days, realm}),
   /**
    * 某天**按小时**的用量（默认今天）。「今日」趋势图用它 —— 范围只有一天时

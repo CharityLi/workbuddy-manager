@@ -366,7 +366,9 @@ export default function StatsPage() {
           }
           icon={Activity}
           tone={todayFailed > 0 ? 'warning' : 'info'}
-          hintTone={todayFailed > 0 ? 'warning' : undefined}
+          // ★ 2026-10-23：无失败时把「今日 Token」的 hint 染成绿色 ✓
+          //   原来是 undefined（灰色 ✗），改 success（绿 ✓）
+          hintTone={todayFailed > 0 ? 'warning' : 'success'}
           delay={0}
         />
         <StatCard

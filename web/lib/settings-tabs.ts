@@ -26,6 +26,9 @@ export const SETTINGS_TABS = [
   // 而且都在回答同一个问题——「我的东西会不会丢」。
   'backup',
   'changelog',
+  // ★ 2026-10-23 新增：外观（自定义背景 / 卡片透明度 / 鼠标静止延迟）
+  //   放在 about 前：它是「界面偏好」，与 data/运维类（backup、changelog）分开 ✓
+  'appearance',
   'about',
 ] as const;
 
@@ -62,6 +65,7 @@ export const SETTINGS_TAB_LABEL_KEYS: Record<SettingsTab, string> = {
   system: 'settings.tabSystem',
   backup: 'settings.tabBackup',
   changelog: 'settings.tabChangelog',
+  appearance: 'settings.tabAppearance',
   about: 'settings.tabAbout',
 };
 

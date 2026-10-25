@@ -21,6 +21,7 @@ import {
   FileText,
   KeyRound,
   Route,
+  Palette,
 } from 'lucide-react';
 import {usePathname} from 'next/navigation';
 import {notify} from '@/lib/toast';
@@ -931,6 +932,8 @@ export default function SettingsLayout({children}: {children: React.ReactNode}) 
     system: {icon: <DownloadCloud className="h-3.5 w-3.5" />},
     backup: {icon: <Database className="h-3.5 w-3.5" />},
     changelog: {icon: <FileText className="h-3.5 w-3.5" />},
+    // ★ 2026-10-23：外观（自定义背景 / 卡片透明度 / 鼠标静止延迟）
+    appearance: {icon: <Palette className="h-3.5 w-3.5" />},
     about: {icon: <Info className="h-3.5 w-3.5" />},
   };
   const tabItems: SectionTabItem[] = SETTINGS_TABS.map((name) => ({
