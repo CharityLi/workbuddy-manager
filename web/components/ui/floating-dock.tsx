@@ -4,10 +4,12 @@
  * Mobile navbar is better positioned at bottom right.
  **/
 
+import {usePathname} from 'next/navigation';
 import {cn} from '@/lib/utils';
 import {withBasePath} from '@/lib/base-path';
 import {splitByGroup} from '@/lib/dock-groups';
 import {IconLayoutNavbarCollapse} from '@tabler/icons-react';
+import {MoreHorizontal} from 'lucide-react';
 import {
   AnimatePresence,
   MotionValue,
@@ -56,142 +58,173 @@ export const FloatingDock = ({
   );
 };
 
+const MOBILE_VISIBLE_DEFAULT = 4;
+
+/**
+ * 移动端底部 Dock（2026-10-23 重写 ✓）
+ *
+ * 原实现：一个 48×48 的悬浮按钮，点击后向上弹出一列 11 项 ✗
+ *   ⇒ 用户反馈「默认隐藏、点击弹出、容易误触」✗
+ *   ⇒ 而且 `dock-root` 在没拖过位置时 `visibility: hidden` ⇒ 首次进入根本看不见 ✗✗
+ *
+ * 现在：**常驻底部横排** ✓ 像系统 Dock 一样一直在
+ *   · 横排显示前 `maxVisible` 项（默认 4 ✓ 375px 屏下 4×44 + 更多 刚好放得下）
+ *   · 其余收进「更多」✓ 点开是**网格**（4 列）而不是长列表 ⇒ 少滚动 ✓
+ *   · 触摸目标统一 44×44 ✓（Apple HIG 最小尺寸 ✓）避免误触
+ *
+ * ★ 桌面端不受影响 ✓ 仍然走 FloatingDockDesktop
+ */
 const FloatingDockMobile = memo(
-    ({
-      items,
-      className,
-      buttonClassName,
-    }: {
+  ({
+    items,
+    className,
+    buttonClassName,
+    maxVisible = MOBILE_VISIBLE_DEFAULT,
+  }: {
     items: FloatingDockItem[];
     className?: string;
     buttonClassName?: string;
+    /** 横排直接显示几项 ✓ 其余进「更多」 */
+    maxVisible?: number;
   }) => {
-      const [open, setOpen] = useState(false);
+    const [open, setOpen] = useState(false);
 
-      const toggleOpen = useCallback(() => {
-        setOpen((prev) => !prev);
-      }, []);
+    const visible = items.slice(0, maxVisible);
+    const rest = items.slice(maxVisible);
 
-      return (
-        <div className={cn('relative block md:hidden', className)}>
-          <AnimatePresence>
-            {open && (
-              <motion.div
-                layoutId="nav"
-                className="absolute inset-x-0 bottom-full mb-2 flex max-h-[min(70dvh,420px)] flex-col gap-1 overflow-y-auto"
-              >
-                {/*
-                  手机端也要分组。原来这里是 `if (item.title === 'divider') return null`
-                  —— 分隔线被跳过后，手机上 11 项平铺，分组语义完全消失（P1-1）。
-                  现在改成按 groupKey 切，并在交界处画一条**带组名**的横线。
-                */}
-                {(() => {
-                  const groups = splitByGroup(items);
-                  const total = items.length;
-                  let flatIndex = -1;
-                  return groups.map((group, groupIndex) => (
-                    <Fragment key={group.key || `group-${groupIndex}`}>
-                      {groupIndex > 0 && (
-                        <div
-                          data-slot="dock-group-separator"
-                          className="flex flex-col items-center gap-1 pt-1"
-                        >
-                          <span className="h-px w-5 bg-border" />
-                          {group.label ? (
-                            <span className="text-[9px] leading-none text-muted-foreground">
-                              {group.label}
-                            </span>
-                          ) : null}
-                        </div>
-                      )}
-                      {group.items.map((item) => {
-                        flatIndex += 1;
-                        const idx = flatIndex;
-                        return (
-                          <motion.div
-                            key={item.title}
-                            initial={{opacity: 0, y: 10}}
-                            animate={{
-                              opacity: 1,
-                              y: 0,
-                            }}
-                            exit={{
-                              opacity: 0,
-                              y: 10,
-                              transition: {
-                                delay: idx * 0.05,
-                              },
-                            }}
-                            transition={{delay: (total - 1 - idx) * 0.05}}
-                          >
-                            {item.customComponent ? (
-                              <div
-                                className={cn(
-                                    'flex h-8 w-8 items-center justify-center rounded-full bg-gray-50 dark:bg-neutral-900',
-                                    buttonClassName,
-                                )}
-                              >
-                                {item.customComponent}
-                              </div>
-                            ) : item.href ? (
-                            <a
-                              href={withBasePath(item.href)}
-                              aria-label={item.title}
-                              className={cn(
-                                  'flex h-8 w-8 items-center justify-center rounded-full bg-gray-50 dark:bg-neutral-900',
-                                  buttonClassName,
-                              )}
-                              {...((item.external || item.href.startsWith('https://')) ?
-                                {target: '_blank', rel: 'noopener noreferrer'} :
-                                {})}
-                            >
-                              <div className="flex items-center justify-center">
-                                {item.icon}
-                              </div>
-                            </a>
-                          ) : (
-                            <button
-                              onClick={item.onClick}
-                              aria-label={item.title}
-                              className={cn(
-                                  'flex h-8 w-8 items-center justify-center rounded-full bg-gray-50 dark:bg-neutral-900',
-                                  buttonClassName,
-                              )}
-                            >
-                              <div className="flex items-center justify-center">
-                                {item.icon}
-                              </div>
-                            </button>
-                          )}
-                          </motion.div>
-                        );
-                      })}
-                    </Fragment>
-                  ));
-                })()}
-              </motion.div>
-            )}
-          </AnimatePresence>
-          <button
-            data-slot="dock-mobile-toggle"
-            aria-label={open ? 'collapse navigation' : 'expand navigation'}
-            aria-expanded={open}
-            onClick={toggleOpen}
-            className={cn(
-                'flex h-8 w-8 items-center justify-center rounded-full bg-gray-50 dark:bg-neutral-800',
-                buttonClassName,
-            )}
-          >
-            <motion.div
-              animate={{rotate: open ? 180 : 0}}
-              transition={{duration: 0.3, ease: 'easeInOut'}}
-            >
-              <IconLayoutNavbarCollapse className="h-4 w-4 text-neutral-500 dark:text-neutral-400" />
-            </motion.div>
-          </button>
-        </div>
+    // ★ 选中态（2026-10-23 ✓ 参照 Telegram）
+    //   原来没有任何高亮 ✗ 用户看不出自己在哪一页
+    //   TG 的做法：选中项给一块**浅色底块** ✓ 图标不变色（不改字重）
+    const pathname = usePathname();
+    const isActive = (href?: string) => {
+      if (!href) return false;
+      if (pathname === href) return true;
+      // 子路由也算（/settings/appearance 应点亮 /settings ✓）
+      return href !== '/' && pathname?.startsWith(href + '/');
+    };
+
+    const renderItem = (item: FloatingDockItem, key: string) => {
+      const active = isActive(item.href);
+      const base = cn(
+        // ★ aspect-square + min-w：截图里选中块被压成了竖长条 ✗
+        //   `w-11` 在 flex 空间紧张时仍可能被压缩，加 min-w 与 aspect 双保险 ✓
+        'flex aspect-square h-11 w-11 min-w-11 shrink-0 items-center justify-center rounded-[16px]',
+        'transition-[background-color,transform] duration-200 active:scale-95',
+        active
+          ? 'bg-foreground/[0.09] text-foreground dark:bg-white/[0.14]'
+          : 'text-muted-foreground hover:text-foreground',
+        buttonClassName,
       );
-    },
+      if (item.customComponent) {
+        return (
+          <div key={key} className={base}>
+            {item.customComponent}
+          </div>
+        );
+      }
+      if (item.href) {
+        return (
+          <a
+            key={key}
+            href={withBasePath(item.href)}
+            aria-label={item.title}
+            className={base}
+            {...((item.external || item.href.startsWith('https://')) ?
+              {target: '_blank', rel: 'noopener noreferrer'} :
+              {})}
+          >
+            {item.icon}
+          </a>
+        );
+      }
+      return (
+        <button key={key} type="button" onClick={item.onClick} aria-label={item.title} className={base}>
+          {item.icon}
+        </button>
+      );
+    };
+
+    return (
+      <div className={cn('block w-full md:hidden', className)}>
+        <AnimatePresence>
+          {open && (
+            <motion.div
+              initial={{opacity: 0, y: 12, scale: 0.98}}
+              animate={{opacity: 1, y: 0, scale: 1}}
+              exit={{opacity: 0, y: 12, scale: 0.98}}
+              transition={{duration: 0.18, ease: 'easeOut'}}
+              className={cn(
+                'absolute inset-x-0 bottom-full mb-2 mx-1 max-h-[min(65dvh,440px)] overflow-y-auto',
+                'rounded-3xl border border-border/60 bg-background/95 p-3',
+                'shadow-[0_18px_50px_rgba(15,23,42,0.18)] backdrop-blur-xl dark:bg-background/95',
+              )}
+            >
+              {(() => {
+                const groups = splitByGroup(items);
+                return groups.map((group, gi) => (
+                  <div key={group.key || `g-${gi}`} className={gi > 0 ? 'mt-3' : ''}>
+                    {/* 第一组不加标题 ⇒ 弹层顶部不啰嗦 ✓ */}
+                    {gi > 0 && group.label ? (
+                      <div className="mb-1.5 px-1 text-[10px] font-medium text-muted-foreground">
+                        {group.label}
+                      </div>
+                    ) : null}
+                    <div className="grid grid-cols-4 gap-2">
+                      {group.items.map((item) =>
+                        renderItem(item, `${group.key || gi}-${item.title}`),
+                      )}
+                    </div>
+                  </div>
+                ));
+              })()}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* 常驻横排 ✓ 不再折叠成一个点 */}
+        {/* ★ 参照 Telegram 的悬浮胶囊（2026-10-23 ✓）
+            要点：① 大圆角（26px）不是直角通栏 ✓
+                  ② 强毛玻璃：blur-2xl + saturate-150 ✓（TG 的透明度约 50~60% ✓）
+                  ③ 四周留白 ⇒ 由外层 px-4 提供 ✓ 不贴屏幕边缘 ✓
+                  ④ 选中项浅色底块 ✓（见 renderItem）
+            ★ 边框用白色半透明而不是 --border：玻璃边缘的"高光"来自白色 ✓
+              --border 在浅色下是灰的 ⇒ 会显脏 ✗ */}
+        <div
+          data-slot="dock-bar"
+          className={cn(
+            // ★ 2026-10-23 二次修正：rounded-full 反而**过度**了 ✗
+            //   对比 TG 截图（高度约 50px、圆角约 18~20px）：
+            //     · rounded-full ⇒ 圆角 = 高度一半 ≈ 28px ⇒ 变成**药丸** ✗ TG 不是药丸
+            //     · rounded-[26px] ⇒ 偏方 ✗
+            //   ⇒ 取中间：**rounded-[20px]** ✓ 与 TG 的视觉比例（0.35~0.4）一致 ✓
+            'flex items-center justify-around gap-0.5 rounded-[20px]',
+            'border border-white/50 dark:border-white/[0.12]',
+            'bg-white/55 dark:bg-neutral-900/60',
+            'backdrop-blur-2xl backdrop-saturate-150',
+            'px-2 py-2',
+          )}
+        >
+          {visible.map((item) => renderItem(item, item.title))}
+          {rest.length > 0 && (
+            <button
+              type="button"
+              data-slot="dock-mobile-more"
+              aria-expanded={open}
+              aria-label={open ? 'collapse navigation' : 'expand navigation'}
+              onClick={() => setOpen((v) => !v)}
+              className={cn(
+                'flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl',
+                'transition-transform active:scale-95',
+                open ? 'bg-foreground/10 text-foreground' : 'text-muted-foreground',
+              )}
+            >
+              <MoreHorizontal className="size-5" />
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  },
 );
 
 FloatingDockMobile.displayName = 'FloatingDockMobile';
@@ -258,6 +291,7 @@ const FloatingDockDesktop = memo(
           ref={rootRef}
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
+          data-slot="dock-bar"
           className={cn(
               'mx-auto hidden items-end gap-2 rounded-xl bg-gray-50 px-2 pb-2 md:flex dark:bg-neutral-900',
               className,

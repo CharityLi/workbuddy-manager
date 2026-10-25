@@ -574,7 +574,10 @@ export default function KeysPage() {
         </TabsList>
       </Tabs>
 
-      <section className="overflow-hidden rounded-[20px] bg-muted">
+      {/* ★ 2026-10-24：原来 `overflow-hidden` ⇒ 9 列在窄屏被直接裁掉（「IP/限」被切断）✗
+          改成 `overflow-x-auto` + 隐藏滚动条 ⇒ 可横滑看全部列，但看不见横条 ✓
+          圆形 `rounded-[20px]` 保留 ✓ */}
+      <section data-slot="keys-table" className="rounded-[20px] bg-muted">
         <Table>
           <TableHeader>
             <TableRow className="border-b border-border/60 hover:bg-transparent">

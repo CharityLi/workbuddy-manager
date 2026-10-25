@@ -56,6 +56,7 @@ import {PageHeader} from '@/components/common/layout/PageHeader';
 import {StatCard, type StatTone} from '@/components/common/layout/StatCard';
 import {CreditCountdown} from '@/components/common/accounts/CreditCountdown';
 import {EmptyState} from '@/components/common/layout/EmptyState';
+import {CacheRate} from '@/components/common/dashboard/CacheRate';
 import {LoadError} from '@/components/common/states/LoadError';
 import {SkeletonBar} from '@/components/common/states/SkeletonBar';
 import {Badge} from '@/components/ui/badge';
@@ -558,113 +559,27 @@ export default function DashboardPage() {
                 })
           }
           icon={Activity}
-          tone={todayFailed > 0 ? 'warning' : 'info'}
-          hintTone={todayFailed > 0 ? 'warning' : undefined}
+          // ★ 2026-10-23：「今日 Token」正常时用绿色 ✓（原来是 info=蓝灰 ✗）
+          //   大数字（22.7M）与副行都跟随 ✓；有失败时仍转 warning（橙 ✓）
+          tone={todayFailed > 0 ? 'warning' : 'success'}
+          hintTone={todayFailed > 0 ? 'warning' : 'success'}
           delay={0.2}
         />
       </section>
 
+      {/* ★ SWAP2-2026-10-23：只互换「积分收支」与「近 14 天趋势」✓
+          「反代上游」留在原处（grid 右 1/3 列，一行未动）✓
+          · 积分收支：整行 → grid 左 2/3（与趋势原宽度一致 ⇒ 表格列宽不变 ✓）
+          · 近 14 天趋势：grid 左 2/3 → 独立整行 section ✓ */}
+
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div className="rounded-[20px] bg-muted p-4 lg:col-span-2">
-          <div className="mb-3 flex items-center justify-between">
-            <div className="text-sm font-medium">{t('dashboard.trend14')}</div>
-            {/* 按当前版本过滤（与统计页同一口径），不再混两个版本。
-                近 7 天有失败时在这里点出总数——用户看曲线只能看出"某天有虚线"，
-                具体多少次要悬停；给个总数省这一步。
-
-                ⚠️ 用量**不按分组**：上游那份 `usage_daily` 表里没有分组列，
-                所以这几张卡片本来就是「全部分组」的口径。与上面的账号数正好
-                一致（那里也是全部聚合），因此不需要额外标注口径差异。 */}
-            <div className="text-[11px] text-muted-foreground">
-              {weekFailed > 0
-                ? t('dashboard.weekFailed', {n: fmtNumber(weekFailed), realm: realmName})
-                : t('dashboard.requestsByRealm', {realm: realmName})}
-            </div>
-          </div>
-          <div className="h-[220px] w-full">
-            {chartData.length ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={chartData} margin={{top: 4, right: 8, bottom: 0, left: 0}}>
-                  <defs>
-                    <linearGradient id="gReq" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.35} />
-                      <stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                  <XAxis dataKey="day" tickLine={false} axisLine={false} fontSize={11} stroke="var(--muted-foreground)" />
-                  <YAxis tickLine={false} axisLine={false} fontSize={11} stroke="var(--muted-foreground)" />
-                  <Tooltip
-                    contentStyle={{
-                      background: 'var(--popover)',
-                      border: '1px solid var(--border)',
-                      borderRadius: 12,
-                      fontSize: 12,
-                    }}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="requests"
-                    name={t('metric.requests')}
-                    stroke="var(--chart-1)"
-                    fill="url(#gReq)"
-                    strokeWidth={2}
-                  />
-                  {/* 失败曲线单独画（虚线、不发散填充）：它来自另一份数据源，
-                      与请求数不是「同一条曲线的两个部分」，不该堆叠。
-                      没有失败时这条线贴着 0，不干扰读数。 */}
-                  <Area
-                    type="monotone"
-                    dataKey="failed"
-                    name={t('dashboard.failedRequests')}
-                    stroke="var(--destructive)"
-                    fill="none"
-                    strokeWidth={1.5}
-                    strokeDasharray="4 3"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : 'daily' in errors ? null : (
-              // 用量取不到时**不说**「暂无调用数据」：那是在断言「你没有调用过」，
-              // 而事实是这份数据没拿到（`daily` 单独失败时整页错误态不会出现）。
-              <div className="grid h-full place-items-center text-xs text-muted-foreground">{t('dashboard.noCallData')}</div>
-            )}
-          </div>
-        </div>
-
-        <div className="rounded-[20px] bg-muted p-4">
-          <div className="mb-3 flex items-center gap-2 text-sm font-medium">
-            <Server className="h-4 w-4" />
-            {t('dashboard.upstreamPanel')}
-          </div>
-          {slices.length ? (
-            // **一个分组一块**，而不是把各组的数加起来：两个分组可以指向同一套
-            // 上游实例（新建分组时地址默认沿用默认分组的），求和会把同一套实例
-            // 数两遍——那比原来的「只报默认分组」更糟，因为它是错的而不是缺的。
-            // 每组一块、各显示各自的数，两块一样就说明它们指着同一个地方。
-            <div className="space-y-3">
-              {slices.map((s, i) => (
-                <div
-                  key={s.gid ?? 'default'}
-                  className={cn('space-y-3', i > 0 && multiGroup && 'border-t border-border pt-3')}
-                >
-                  <UpstreamBlock slice={s} realm={realm} showName={multiGroup} />
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="grid h-[160px] place-items-center text-xs text-muted-foreground">{t('dashboard.noUpstreamStatus')}</div>
-          )}
-        </div>
-      </section>
-
       {/* 积分收支（收入 / 支出）：用户反馈「只看得到余额，看不到收入多少、支出
           多少」。时段由右上角下拉控制（当天 / 3 / 7 / 15 / 30 天），数字与折线
           都跟着它走，不把「今日」「近 7 天」固定写死在上面。
           ⚠️ 收入与支出是**两套口径**（见后端 credits_flow）：收入是「余额比上次
           查询增加的部分」，按查询时刻归日，是近似值；支出是每次调用的真实扣费。
           所以两者分列、不合并成单一「净额」下结论，并在悬停里如实说明口径。 */}
-      <section className="rounded-[20px] bg-muted p-4" aria-busy={flowState.isRefreshing}>
+        <section className="rounded-[20px] bg-muted p-4 lg:col-span-2" aria-busy={flowState.isRefreshing}>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
           <div className="flex items-center gap-2 text-sm font-medium">
             <Coins className="h-4 w-4" />
@@ -739,6 +654,13 @@ export default function DashboardPage() {
                         borderRadius: 12,
                         fontSize: 12,
                       }}
+                      /* ★ 2026-10-23：tooltip 里的支出原来显示 177.20999999999995 ✗
+                         recharts 默认直接 String(value) ⇒ 浮点长尾全暴露 ✓
+                         统一截到 2 位 + 千分位 ✓（与卡片上的数字口径一致 ✓） */
+                      formatter={(value, name) => [
+                        fmtCredit2(Number(value)),
+                        String(name),
+                      ]}
                     />
                     <Legend wrapperStyle={{fontSize: 11}} />
                     <Line yAxisId="inc" type="monotone" dataKey="income"
@@ -757,6 +679,101 @@ export default function DashboardPage() {
             </div>
           </>
         )}
+      </section>
+
+        <div className="rounded-[20px] bg-muted p-4">
+          <div className="mb-3 flex items-center gap-2 text-sm font-medium">
+            <Server className="h-4 w-4" />
+            {t('dashboard.upstreamPanel')}
+          </div>
+          {slices.length ? (
+            // **一个分组一块**，而不是把各组的数加起来：两个分组可以指向同一套
+            // 上游实例（新建分组时地址默认沿用默认分组的），求和会把同一套实例
+            // 数两遍——那比原来的「只报默认分组」更糟，因为它是错的而不是缺的。
+            // 每组一块、各显示各自的数，两块一样就说明它们指着同一个地方。
+            <div className="space-y-3">
+              {slices.map((s, i) => (
+                <div
+                  key={s.gid ?? 'default'}
+                  className={cn('space-y-3', i > 0 && multiGroup && 'border-t border-border pt-3')}
+                >
+                  <UpstreamBlock slice={s} realm={realm} showName={multiGroup} />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="grid h-[160px] place-items-center text-xs text-muted-foreground">{t('dashboard.noUpstreamStatus')}</div>
+          )}
+          {/* ★ 2026-10-23：命中率统计（补在上游卡片下方原本的空白处 ✓） */}
+          <CacheRate />
+        </div>
+      </section>
+
+      <section className="rounded-[20px] bg-muted p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <div className="text-sm font-medium">{t('dashboard.trend14')}</div>
+            {/* 按当前版本过滤（与统计页同一口径），不再混两个版本。
+                近 7 天有失败时在这里点出总数——用户看曲线只能看出"某天有虚线"，
+                具体多少次要悬停；给个总数省这一步。
+
+                ⚠️ 用量**不按分组**：上游那份 `usage_daily` 表里没有分组列，
+                所以这几张卡片本来就是「全部分组」的口径。与上面的账号数正好
+                一致（那里也是全部聚合），因此不需要额外标注口径差异。 */}
+            <div className="text-[11px] text-muted-foreground">
+              {weekFailed > 0
+                ? t('dashboard.weekFailed', {n: fmtNumber(weekFailed), realm: realmName})
+                : t('dashboard.requestsByRealm', {realm: realmName})}
+            </div>
+          </div>
+          <div className="h-[220px] w-full">
+            {chartData.length ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={chartData} margin={{top: 4, right: 8, bottom: 0, left: 0}}>
+                  <defs>
+                    <linearGradient id="gReq" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.35} />
+                      <stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                  <XAxis dataKey="day" tickLine={false} axisLine={false} fontSize={11} stroke="var(--muted-foreground)" />
+                  <YAxis tickLine={false} axisLine={false} fontSize={11} stroke="var(--muted-foreground)" />
+                  <Tooltip
+                    contentStyle={{
+                      background: 'var(--popover)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 12,
+                      fontSize: 12,
+                    }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="requests"
+                    name={t('metric.requests')}
+                    stroke="var(--chart-1)"
+                    fill="url(#gReq)"
+                    strokeWidth={2}
+                  />
+                  {/* 失败曲线单独画（虚线、不发散填充）：它来自另一份数据源，
+                      与请求数不是「同一条曲线的两个部分」，不该堆叠。
+                      没有失败时这条线贴着 0，不干扰读数。 */}
+                  <Area
+                    type="monotone"
+                    dataKey="failed"
+                    name={t('dashboard.failedRequests')}
+                    stroke="var(--destructive)"
+                    fill="none"
+                    strokeWidth={1.5}
+                    strokeDasharray="4 3"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : 'daily' in errors ? null : (
+              // 用量取不到时**不说**「暂无调用数据」：那是在断言「你没有调用过」，
+              // 而事实是这份数据没拿到（`daily` 单独失败时整页错误态不会出现）。
+              <div className="grid h-full place-items-center text-xs text-muted-foreground">{t('dashboard.noCallData')}</div>
+            )}
+          </div>
       </section>
 
       <section className="rounded-[20px] bg-muted p-4">
@@ -1019,6 +1036,16 @@ function DashboardSkeleton() {
  * 为什么不用顶部那个 StatCard：本块在 `bg-muted` 的 section 内部，再嵌一层
  * 同色的 bg-muted 会看不出卡片边界；这里用 `bg-background/60` 区分层次。
  */
+/** 金额：2 位小数 + 千分位 ✓（2026-10-23 ✓ 杜绝 177.20999999999995 ✗） */
+function fmtCredit2(n: number): string {
+  if (!Number.isFinite(n)) return '—';
+  const fixed = n.toFixed(2);
+  const neg = fixed.startsWith('-');
+  const [intPart, decPart] = (neg ? fixed.slice(1) : fixed).split('.');
+  const grouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return `${neg ? '-' : ''}${grouped}.${decPart}`;
+}
+
 function CreditFlowTile({label, value, tone, title}: {
   label: string;
   value: number;
@@ -1044,7 +1071,13 @@ function CreditFlowTile({label, value, tone, title}: {
       <div className="text-[11px] text-muted-foreground">{label}</div>
       <div className={'mt-1 text-lg font-semibold tabular-nums ' + color}>
         {sign}
-        {fmtNumber(Math.abs(value))}
+        {/* ★ 2026-10-23：收支一律保留 2 位小数 ✓（原来走 fmtNumber ⇒ 整数 ✗）
+            支出经常是 0.05 / 14.94 这种零头，取整就丢信息了 ✓ */}
+        {/* ★ 2026-10-23（重做，上一版被恢复备份抹掉 ✗）
+            现象：支出显示成 1126.5400000000002 这种长尾 ⇒ 卡片被撑宽
+            原因：浮点累加后直接交给 toLocaleString，边界值舍入不可靠
+            ⇒ 两步走：先 toFixed(2) 截断 ⇒ 再按整数/小数两段拼千分位 ✓ */}
+        {fmtCredit2(Math.abs(value))}
       </div>
     </div>
   );

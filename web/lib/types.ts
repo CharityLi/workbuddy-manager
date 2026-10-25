@@ -751,6 +751,12 @@ export interface StatsSummary {
   total_credit: number;
   week_requests: number;
   week_tokens: number;
+  /** ★ 2026-10-23：今天「模型输出」的 token 合计（上游 completion_tokens ✓）
+   *  与 `today_tokens` 的区别：后者是**总消耗**（输入 + 输出 ✓）
+   *  用途：仪表盘「今天获取 Token」卡（绿色 ✓） */
+  today_completion_tokens: number;
+  /** 同上，近 7 天口径 ✓ */
+  week_completion_tokens: number;
   total_requests: number;
   total_tokens: number;
   active_keys: number;
@@ -1439,4 +1445,29 @@ export interface PgSyncTestResult {
   ok: boolean;
   message: string;
   server_version?: string;
+}
+
+
+/**
+ * 缓存命中率统计（2026-10-23 ✓）
+ *
+ * 数据源是**网关的 request-logs JSONL** ✗ 不是本地库
+ * 口径：rate = hit / (hit + miss)，输出 tokens 独立展示、不进分母 ✓
+ */
+export interface CacheRate {
+  days: number;
+  /** 命中 tokens（输入侧命中缓存的部分 ✓） */
+  hit: number;
+  /** 未命中 tokens（输入侧真正发给模型的部分 ✓） */
+  miss: number;
+  /** 输出 tokens（模型生成量 ✓ 与缓存无关） */
+  output: number;
+  /** 命中率百分比，一位小数 ✓ */
+  rate: number;
+  /** 参与统计的记录数（有 cache 字段的 ✓） */
+  records: number;
+  /** 无 cache 字段被跳过的记录数（老上游不返回该字段 ✓） */
+  skipped: number;
+  /** 当天日志文件是否存在 ✓ */
+  found: boolean;
 }

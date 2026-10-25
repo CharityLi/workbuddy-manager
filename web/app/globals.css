@@ -8,6 +8,25 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-inter), var(--font-noto-sans-sc), system-ui, sans-serif;
   --font-mono: var(--font-inter), var(--font-noto-sans-sc), monospace;
+
+  /* ═══ Dock 语义 token（2026-10-23 ✓）
+     组件只写 bg-dock / text-dock-idle / bg-dock-pill / shadow-dock ✓
+     明暗差异全在 :root 与 .dark ⇒ 组件零改动 ✓ */
+  --color-dock: var(--dock-bg);
+  --color-dock-idle: var(--dock-idle);
+  --color-dock-active: var(--dock-active);
+  --color-dock-pill: var(--dock-pill-bg);
+  --color-dock-badge: var(--dock-badge);
+  /* 文字投影：Tailwind 没有内置的 text-shadow 工具类 ⇒ 用任意值引用 ✓ */
+  --text-shadow-dock: var(--dock-text-shadow);
+
+  /* 阴影给直接值 ⇒ shadow-dock 可用 ✓
+     四层：远投影 + 近投影 + 顶部内高光 + 0.5px 内描边
+     ★ 后两层是玻璃的关键，少边缘会发灰 ✗ */
+  --shadow-dock:
+    0 10px 34px -8px rgb(0 0 0 / 0.55),
+    0 2px 10px -2px rgb(0 0 0 / 0.35),
+    inset 0 1px 0 rgb(255 255 255 / 0.16);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -44,6 +63,43 @@
 }
 
 :root {
+  /* ═══ Dock 浅色（2026-10-23 ✓）
+     ★ 两个刻意的选择：
+       ① 指示球描边 .40（深色 .36）—— 浅背景会把蓝"洗淡"甚至染成紫，描边不加厚看不出 ✗
+       ② 底色保持 .94 —— 为通透调低会让背后彩色内容透上来，把品牌蓝污染掉 ✗ */
+  /* ★ 2026-10-23 调整：.94 → .88
+     原 .94 只透 6% ⇒ 视觉上就是实心，"毛玻璃"完全看不出来 ✗
+     .88 透 12%：能看出背后的色块被糊开 ✓ 又不至于把品牌蓝染脏 ✓
+     ★ 要回到原规格就把 .88 改回 .94 ✓ */
+  /* ★ 2026-10-23 三调：.88 → .80（与深色同步让两档都"透"一点）✓ */
+  /* ★ 2026-10-23 四调：.80 → .66 ✓ */
+  /* ★ 五调：实心底色（.66 → .96）✓ 毛玻璃只保留在边缘 ✓ */
+  /* ★ 2026-10-23 七调：拆成「RGB + alpha」两段 ✓
+     这样运行时只改 alpha 变量就能调通透度 ⇒ demo 页滑块直接调 ✓
+     （改完整 rgba 串做不到，那串里混着三个通道 ✗） */
+  --dock-bg-rgb: 252 252 253;
+  --dock-bg-a: 0.52;
+  --dock-bg: rgb(var(--dock-bg-rgb) / var(--dock-bg-a));
+
+  /* 选中态底色：★ 2026-10-24 恢复 0.2（原设计值 ✓）
+     默认 0 时高亮块完全透明 ⇒ 滑动动效看不见 ✗
+     0.2 是能看出"滑动 + 选中"的最小可见值 ✓ */
+  --dock-pill-rgb: 51 144 236;
+  /* ★★ 2026-10-24 照 TG 视频帧还原 ✓
+     实测浅色 TG：选中块是**中性灰**（不是蓝）≈ 黑 6%，圆角 23px，距 Dock 边缘 8px ✓
+     深色 TG：白 14% ✓ */
+  --dock-pill-rgb: 0 0 0;
+  --dock-pill-a: 0.06;
+  /* ★ 五调：未选中由灰蓝改为近黑（用户要求"黑色图标黑色字体"）✓ */
+  --dock-idle: #1a1d21;
+  --dock-active: #3390ec;          /* 与深色版完全一致 ✓ */
+  --dock-pill-bg: rgb(var(--dock-pill-rgb) / var(--dock-pill-a));
+  --dock-pill-ring: rgb(var(--dock-pill-rgb) / 0);
+  --dock-badge: #ff453a;
+  /* ★ 五调：边缘描边色 —— 浅色用淡墨线 ✓ 白底上白线完全不可见 ✗ */
+  --dock-edge: rgba(15, 23, 42, 0.10);
+  /* ★ 六调：文字投影 —— 玻璃很透时靠它保可读性 ✓ */
+  --dock-text-shadow: 0 1px 2px rgba(255, 255, 255, 0.65);
   --radius: 0.625rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.141 0.005 285.823);
@@ -82,6 +138,34 @@
 }
 
 .dark {
+  /* ═══ Dock 深色（2026-10-23 ✓） */
+  /* ★ 2026-10-23 调整：.86 → .78（同上理由，深色本来就更容易看出通透）✓ */
+  /* ★ 2026-10-23 三调：.78 → .58
+     截图证实 .78 时"能看出糊但底色太深"✗ —— 78% 的近黑把背后的彩色压成深青灰 ✓
+     深色毛玻璃的"清透"靠的是「暗但透」✗ 暗靠色相（21,31,42 本身够暗）✓
+     不靠不透明度 ⇒ 降到 .58 让背景色透上来 ✓
+     ★ 再低于 .5 会糊成一片、文字对比度也会掉 ✗ */
+  /* ★ 五调：实心底色（.40 → .92）✓ 与浅色同理，毛玻璃只在边缘 ✓ */
+  /* ★ 七调：同样拆成 RGB + alpha ✓ */
+  --dock-bg-rgb: 21 31 42;
+  --dock-bg-a: 0.42;
+  --dock-bg: rgb(var(--dock-bg-rgb) / var(--dock-bg-a));
+
+  --dock-pill-rgb: 255 255 255;
+  /* ★ 2026-10-24：选中态**不添加任何背景填充** ✓
+     只靠图标与文字变蓝表达 ✓ alpha 默认 0 ✓
+     （指示球代码保留 ⇒ demo 滑块仍可调出来看 ✓） */
+  --dock-pill-a: 0.14;
+  /* ★ 五调：未选中由灰改为纯白（用户要求"白色图标白色字体"）✓ */
+  --dock-idle: #ffffff;
+  --dock-active: #3390ec;          /* 与浅色一致 ✓ 不调亮不调暗 */
+  --dock-pill-bg: rgb(var(--dock-pill-rgb) / var(--dock-pill-a));
+  --dock-pill-ring: rgb(var(--dock-pill-rgb) / 0);
+  --dock-badge: #ff3b30;
+  /* ★ 五调：边缘描边色 —— 深色用白色高光 ✓ */
+  --dock-edge: rgba(255, 255, 255, 0.20);
+  /* ★ 六调：文字投影 —— 深色玻璃上深投影响更清晰 ✓ */
+  --dock-text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
   --background: oklch(0.141 0.005 285.823);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.21 0.006 285.885);
@@ -333,4 +417,305 @@ button {
     width: 1rem;
     height: 1rem;
   }
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   自定义背景遮罩（2026-10-23 ✓）
+   背景图/色由 BackgroundApplier 写到 body 的 style ✓
+   这里只用一层固定伪元素做「压暗」，保证卡片上的文字可读 ✓
+   强度由 JS 写入 --wb-bg-dim（0~0.8 ✓ 设置页拖动调节 ✓）
+   ★ pointer-events: none ⇒ 不影响任何点击 ✓
+   ═══════════════════════════════════════════════════════════ */
+:root {
+  --wb-bg-dim: 0;
+}
+
+body[data-wb-bg]::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--background) calc(var(--wb-bg-dim) * 100%), transparent);
+}
+
+/* 让主内容区透出背景 ✓ 否则 body 背景被卡片盖住看不见 */
+body[data-wb-bg] {
+  background-attachment: fixed;
+}
+
+
+/* ─────────────────────────────────────────────────────────────
+   卡片半透明（2026-10-23 ✓）
+   有自定义背景时，把 `.bg-card` 的背景换成「按 --wb-card-alpha 混合透明」
+   ⇒ 背景图能透出来 ✓ 又不至于字看不清（最低 0.2 ✓）
+   ★ 只作用于 `body[data-wb-bg]` ⇒ 没用背景时完全不影响原样式 ✓
+   ───────────────────────────────────────────────────────────── */
+:root {
+  --wb-card-alpha: 1;
+}
+
+body[data-wb-bg] .bg-card,
+body[data-wb-bg] .bg-muted,
+body[data-wb-bg] .bg-background,
+body[data-wb-bg] .bg-popover,
+body[data-wb-bg] .bg-secondary,
+body[data-wb-bg] .bg-accent {
+  background-color: color-mix(
+    in srgb,
+    var(--card) calc(var(--wb-card-alpha) * 100%),
+    transparent
+  );
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+
+  /* ★ 透明度切换的过渡（2026-10-23 ✓）
+     鼠标动/停时卡片会从 90% 渐变到你设的值 ✓
+     没有过渡会「啪」一下跳变 ✗ 很生硬
+     · 0.45s：够慢能看出渐变，又不会觉得迟钝 ✓
+     · ease-out：起步快、收尾缓 ✓ 手感比 linear 好
+     · 只过渡 background-color 与 backdrop-filter ✓
+       不过渡 transform/opacity ⇒ 不影响 hover 等其它动效 ✓ */
+  transition:
+    background-color 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+    backdrop-filter 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+    -webkit-backdrop-filter 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* 侧栏/顶栏也让它透一点 ✓ 否则只有中间透明很怪 */
+body[data-wb-bg] header,
+body[data-wb-bg] aside {
+  background-color: color-mix(
+    in srgb,
+    var(--background) calc(var(--wb-card-alpha) * 100%),
+    transparent
+  );
+  backdrop-filter: blur(6px);
+}
+
+
+/* ─────────────────────────────────────────────────────────────
+   有背景时提高文字对比度（2026-10-23 ✓）
+   问题：白底 GIF + 浅色主题 ⇒ 灰字几乎看不见 ✗（截图证实 ✓）
+   ⇒ 有背景时把前景色/次要文字压深（浅色主题）或提亮（深色主题）✓
+   ★ 只在 body[data-wb-bg] 生效 ⇒ 无背景时原样 ✓
+   ───────────────────────────────────────────────────────────── */
+body[data-wb-bg] {
+  /* 浅色主题下：把字压到接近纯黑 ✓ 次要文字也从灰提到深灰 ✓ */
+  --foreground: oklch(0.15 0.005 285);
+  --card-foreground: oklch(0.15 0.005 285);
+  --muted-foreground: oklch(0.32 0.008 285);
+  --popover-foreground: oklch(0.15 0.005 285);
+  text-shadow: 0 1px 2px color-mix(in srgb, var(--background) 55%, transparent);
+}
+
+.dark body[data-wb-bg],
+body.dark[data-wb-bg],
+html.dark body[data-wb-bg] {
+  /* 深色主题下：字提亮 ✓ */
+  --foreground: oklch(0.99 0 0);
+  --card-foreground: oklch(0.99 0 0);
+  --muted-foreground: oklch(0.82 0.005 285);
+  --popover-foreground: oklch(0.99 0 0);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.55);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════
+   清透玻璃卡片（2026-10-23 ✓）
+   原样式是「无边框、靠底色区分」✗（StatCard 注释明说 ✓）
+   ⇒ 加三件套做出玻璃质感：
+      ① 细边框（--border 60% 透明）⇒ 边缘轮廓 ✓
+      ② 外阴影（双层：贴地 + 扩散）⇒ 浮起感 ✓
+      ③ 内高光（inset 顶部 1px 白）⇒ ★ 玻璃的关键，没有它就显得脏 ✓
+   黑白主题适配：
+      · 浅色：阴影用黑低透明 ✓ 内高光白 55% ✓
+      · 深色：阴影加深加浓 ✓ 内高光白 8%（深色玻璃靠它提亮上边缘 ✓）
+   ★ 只作用于卡片类 ✓ 不碰输入框/按钮 ✓
+   ═══════════════════════════════════════════════════════════════ */
+:root {
+  /* ★ 2026-10-23 修正：浅色主题下原来「几乎看不见」✗
+     根因不是缩进调参不准，而是结构性同色：
+       --card      = oklch(1 0 0)     纯白
+       --background= oklch(1 0 0)     纯白   ← 卡片与页面完全同色
+       --border    = oklch(0.92 …)    再叠 62% 透明 ⇒ 实际对比只差 0.03 ⇒ 肉眼不可见
+     ⇒ 解法：① 边框换成更深的一档灰（0.84）且不透明度提到 92%
+             ② 阴影加重到白底上真能看出浮起（0.07 / 0.20）
+             ③ 内高光提高 + 加底部内阴影 ⇒ 白底上才有「玻璃卡纸」的厚度感
+     ★ 深色不动（用户确认深色可以 ✓） */
+  --wb-glass-border: color-mix(in srgb, oklch(0.84 0.006 286) 92%, transparent);
+  --wb-glass-shadow:
+    0 1px 3px rgba(15, 23, 42, 0.07),
+    0 14px 34px -14px rgba(15, 23, 42, 0.20);
+  --wb-glass-highlight:
+    inset 0 1px 0 rgba(255, 255, 255, 0.90),
+    inset 0 -1px 0 rgba(15, 23, 42, 0.035);
+}
+
+.dark {
+  --wb-glass-border: color-mix(in srgb, var(--border) 85%, transparent);
+  --wb-glass-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.35),
+    0 12px 36px -14px rgba(0, 0, 0, 0.55);
+  --wb-glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+/* ★ 用 box-shadow 的 spread 画 1px 边框，而不是 border ✗
+   为什么：`.bg-muted` 也被用作小圆点 / 徽标底色（`w-2 h-2 rounded-full bg-muted` 之类 ✓）
+   加 border 会让它们**尺寸各涨 2px** ⇒ 布局轻微错位 ✗
+   box-shadow spread 不占布局 ✓ 视觉一样 ✓ */
+.bg-muted,
+.bg-card,
+.bg-popover,
+.bg-secondary,
+.bg-accent {
+  box-shadow:
+    0 0 0 1px var(--wb-glass-border),
+    var(--wb-glass-shadow),
+    var(--wb-glass-highlight);
+}
+
+/* 有自定义背景时：玻璃 + 半透明叠加 ✓（透明度由 --wb-card-alpha 控制） */
+body[data-wb-bg] .bg-card,
+body[data-wb-bg] .bg-muted,
+body[data-wb-bg] .bg-background,
+body[data-wb-bg] .bg-popover,
+body[data-wb-bg] .bg-secondary,
+body[data-wb-bg] .bg-accent {
+  box-shadow: var(--wb-glass-shadow), var(--wb-glass-highlight);
+}
+
+/* 侧栏 / 顶栏也给一层极淡的边界 ✓ 否则浮在背景上像贴纸 */
+body[data-wb-bg] header,
+body[data-wb-bg] aside {
+  box-shadow: 0 1px 0 0 var(--wb-glass-border);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════
+   Dock 栏玻璃质感（2026-10-23 ✓）
+   两端共用同一套玻璃变量 ✓ 只是圆角/尺寸不同 ✓
+   桌面端原本写死 `shadow-lg shadow-black/10`（Tailwind）⇒ 会盖掉这里 ✗
+   ⇒ 已从 desktopClassName 移除，统一交给变量 ✓（见 ManagementBar）
+   ★ 用属性选择器而不是类名：Dock 的类名由父组件传入、会变 ✗
+     属性 `data-slot="dock-bar"` 是稳定的 ✓
+   ═══════════════════════════════════════════════════════════════ */
+[data-slot="dock-bar"] {
+  box-shadow:
+    0 0 0 1px var(--wb-glass-border),
+    var(--wb-glass-shadow),
+    var(--wb-glass-highlight);
+}
+
+
+/* ═══════════════════════════════════════════════════════════════
+   Dock 选中回弹（2026-10-23 ✓）
+   dock-item.tsx 用 `animate-[dock-pop_480ms_cubic-bezier(...)]` 引用 ✓
+   ★ 38% 处加 1px 上浮：只放大不位移会显得"发福"，带上跳才像 iOS ✓
+   ═══════════════════════════════════════════════════════════════ */
+@keyframes dock-pop {
+  0%   { transform: scale(1) translateY(0); }
+  38%  { transform: scale(1.16) translateY(-1px); }
+  100% { transform: scale(1) translateY(0); }
+}
+
+
+/* ★★★ 2026-10-24 删除：::before 掠过高亮整段 ✗
+   删掉的两个原因（截图实证）：
+   ① 图1 的「彩虹圆」= `backdrop-filter` 叠在 `z-index: -1` 上的渲染异常 ✗
+      不是设计效果，是浏览器渲染缺陷 ✓
+   ② 图2 的高亮块跨了两个格子 ⇒ `::before` 的包含块没落在单个 tab 上 ✗
+   用户要求「不添加任何背景填充或遮罩」⇒ 直接删掉，只保留颜色过渡 ✓
+   ⇒ 选中态只靠图标/文字变蓝表达 ✓ 零背景 ✓ */
+
+
+/* ═══════════════════════════════════════════════════════════════
+   Dock 选中回弹 —— 文字版（2026-10-24 ✓）
+   与图标同一曲线，但幅度更小（1.08 vs 1.16）✓
+   理由：文字放太大会糊 ✗ 而图标是剪影，放大更有弹性感 ✓
+   ═══════════════════════════════════════════════════════════════ */
+@keyframes dock-pop-text {
+  0%   { transform: scale(1); }
+  38%  { transform: scale(1.08) translateY(-0.5px); }
+  100% { transform: scale(1); }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════
+   密钥表格：移动端平铺成卡片（2026-10-24 ✓）
+   ★ 为什么不用横向滚动：9 列在 375px 宽里必然拥挤 ✗
+     用户明确要求「不要横移，平铺展开」✓
+   ★ 为什么用 CSS 而不是另写一套卡片 JSX：
+     · 数据字段、状态判断、操作按钮都在 JSX 里 ✓
+       重写一份 = 两处维护 + 容易不同步 ✗
+     · `display: block` 把 table 语义摊平 ✓ 视觉上就是卡片 ✓
+       JSX 一行不改 ⇒ 桌面端不受影响 ✓
+   ═══════════════════════════════════════════════════════════════ */
+@media (max-width: 767px) {
+  [data-slot="keys-table"] table {
+    display: block;
+  }
+  [data-slot="keys-table"] thead {
+    display: none;               /* 表头在卡片模式下没有意义 ✓ */
+  }
+  [data-slot="keys-table"] tbody,
+  [data-slot="keys-table"] tr,
+  [data-slot="keys-table"] td {
+    display: block;
+    width: auto;
+  }
+  /* 每行 = 一张卡 */
+  [data-slot="keys-table"] tbody tr {
+    position: relative;
+    margin: 10px;
+    padding: 12px;
+    border-radius: 14px;
+    background: var(--background);
+    border: 1px solid var(--border);
+  }
+  [data-slot="keys-table"] tbody tr + tr {
+    margin-top: 10px;
+  }
+  /* 单元格 = 一行「标签: 值」 */
+  [data-slot="keys-table"] td {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 5px 0;
+    border: 0;
+    text-align: left;
+  }
+  /* 用伪元素补上列名（顺序与表头一致 ✓） */
+  [data-slot="keys-table"] td::before {
+    content: "";
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--muted-foreground);
+  }
+  [data-slot="keys-table"] td:nth-child(1)::before { content: "名称"; }
+  [data-slot="keys-table"] td:nth-child(2)::before { content: "密钥"; }
+  [data-slot="keys-table"] td:nth-child(3)::before { content: "状态"; }
+  [data-slot="keys-table"] td:nth-child(4)::before { content: "版本"; }
+  [data-slot="keys-table"] td:nth-child(5)::before { content: "有效期"; }
+  [data-slot="keys-table"] td:nth-child(6)::before { content: "IP / 模型"; }
+  [data-slot="keys-table"] td:nth-child(7)::before { content: "已用额度"; }
+  [data-slot="keys-table"] td:nth-child(8)::before { content: "最后调用"; }
+  [data-slot="keys-table"] td:nth-child(9)::before { content: "操作"; }
+
+  /* 第一格（名称）当卡片标题：字号大一点、不要标签 ✓ */
+  [data-slot="keys-table"] td:nth-child(1) {
+    display: block;
+    padding: 0 0 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  [data-slot="keys-table"] td:nth-child(1)::before { content: none; }
+
+  /* 最后一格（操作）右对齐，按钮不要被压扁 ✓ */
+  [data-slot="keys-table"] td:last-child {
+    justify-content: flex-end;
+    padding-top: 10px;
+  }
+  [data-slot="keys-table"] td:last-child::before { content: none; }
 }

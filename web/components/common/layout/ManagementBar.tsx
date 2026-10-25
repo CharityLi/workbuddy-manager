@@ -1,5 +1,11 @@
+import {LanguageToggle} from '@/components/common/layout/LanguageToggle';
 import {useState, useEffect, useRef, useCallback} from 'react';
 import {FloatingDock} from '@/components/ui/floating-dock';
+import {Fragment, type ReactNode} from 'react';
+import {DockNav, type DockNavItem} from '@/components/dock/dock-nav';
+import {usePathname, useRouter} from 'next/navigation';
+import {cn} from '@/lib/utils';
+
 import packageJson from '../../../package.json';
 import {
   MessageCircleIcon,
@@ -20,6 +26,7 @@ import {
   ChevronRight,
   Pin as PinIcon,
   Move as MoveIcon,
+  MoreHorizontal,
 } from 'lucide-react';
 import {useThemeUtils} from '@/hooks/use-theme-utils';
 import {useAuth} from '@/lib/auth-context';
@@ -565,6 +572,98 @@ export function ManagementBar() {
    * 判据是「用户会不会在同一段时间里来回切」——会，那就不是两个一级入口。
    * 三个被吸收的页面**路径没变**，所以既有的书签与深链仍然直接可用。
    */
+  /* DockNav 适配层（2026-10-24 ✓）
+     ★ 写成**函数**而不是 useMemo：
+       它在 JSX 里调用时才求值 ⇒ 不存在"dockItems 未定义"的顺序问题 ✓
+     ★ 移动端 4 项（仪表盘/账号/密钥/设置，设置暂代「更多」）✓
+       桌面端全量 ✓ */
+  /* ★ 路由相关：DockNav 需要自己判断 active 与跳转 ✓ */
+  const pathname = usePathname();
+  const router = useRouter();
+
+  /* ★ 移动端「更多」面板（2026-10-24 ✓）
+     面板里放的是「移动端 4 项之外的其余目的地」✓
+     用 Dialog + 网格，卡片沿用 Dock 的玻璃质感 ✓ */
+  const [moreOpen, setMoreOpen] = useState(false);
+  /* ★ 2026-10-24：「更多」面板固定 4 项 ✓ 模型 / 日志 / 安全 / 个人信息
+   ⇒ 2×2 网格刚好填满 ✓
+   `profile` 不是路由（是弹窗）⇒ 用 `profile: true` 标记，单独处理 ✓ */
+  const MORE_ENTRIES: Array<{href: string; label?: string} | {profile: true}> = [
+    {href: '/models'},
+    {href: '/logs'},
+    {href: '/security'},
+    {profile: true},
+  ];
+  const MORE_HREFS = MORE_ENTRIES.filter((e) => 'href' in e).map((e) => (e as {href: string}).href);
+
+  const buildDockNavItems = (): DockNavItem[] => {
+    /* ★ 2026-10-24：移动端改为 5 项 —— 仪表盘 / 账号 / 密钥 / 设置 / 更多 ✓
+       「更多」是虚拟项：不在 dockItems 里，点开弹出其余 6 项的网格面板 ✓ */
+    /* ★ 2026-10-24：移动端 7 项，按指定顺序 ✓
+       仪表盘 ｜账号 密钥 用量 日志 ｜设置 更多
+       竖线出现在「账号」和「设置」之前 ⇒ 用它俩的 href 标记 ✓ */
+    /* ★ 2026-10-24：日志挪进「更多」⇒ 移动端 6 项 ✓
+       仪表盘 ｜账号 密钥 用量 ｜设置 更多 */
+    const MOBILE_ORDER = ['/dashboard', '/accounts', '/keys', '/stats', '/settings'];
+    const MOBILE_DIVIDERS = ['/accounts', '/settings'];
+    const src = isMobileDock
+      ? MOBILE_ORDER.map((h) =>
+          dockItems.find((it) => 'href' in it && it.href === h),
+        ).filter(Boolean) as typeof dockItems
+      : dockItems;
+    /* ★★★ 2026-10-24 修正：不再过滤掉无 href 的项 ✗
+       旧 Dock 里「快捷添加」「我的信息」是 customComponent（弹窗），没有 href ✓
+       我上一版用 `.filter((it) => 'href' in it)` 把它们滤掉了 = 少了两个入口 ✗
+       ⇒ 现在按 groupKey 决定 onClick：
+         有 href ⇒ router.push；profile ⇒ 开个人信息弹窗；quickAdd ⇒ 开添加账号 ✓ */
+    const out: DockNavItem[] = [];
+    let lastGroup: string | null = null;
+    for (const it of src) {
+      const gk = (it as {groupKey?: string}).groupKey ?? '';
+      if (!('title' in it) || !it.title) continue;
+      const href = (it as {href?: string}).href;
+      const title = it.title as string;
+
+      /* 分组竖线（首项不画 ✓）
+         移动端按 MOBILE_DIVIDERS 显式指定；桌面按 groupKey 变化 ✓ */
+      const dividerBefore = isMobileDock
+        ? out.length > 0 && MOBILE_DIVIDERS.includes(href ?? '')
+        : out.length > 0 && gk !== lastGroup;
+      lastGroup = gk;
+
+      out.push({
+        key: href ?? `act-${gk}-${title}`,
+        label: title,
+        icon: it.icon,
+        active: href
+          ? pathname === href || (href !== '/dashboard' && pathname.startsWith(href + '/'))
+          : false,
+        onClick: () => {
+          if (href) {
+            router.push(href);
+          } else if (title === t('nav.profile')) {
+            setProfileOpen(true);
+          } else if (title === t('nav.quickAdd')) {
+            if (isAdmin) setAddOpen(true);
+          }
+        },
+        dividerBefore,
+      });
+    }
+    /* ★ 移动端追加「更多」虚拟项 ✓（桌面端不加，它已经有全部入口）*/
+    if (isMobileDock) {
+      out.push({
+        key: '__more__',
+        label: '更多',
+        icon: <MoreHorizontal {...IconOptions} />,
+        active: MORE_HREFS.includes(pathname ?? ''),
+        onClick: () => setMoreOpen(true),
+      });
+    }
+
+    return out;
+  };
+
   const dockItems = [
     {
       title: t('nav.dashboard'),
@@ -666,6 +765,13 @@ export function ManagementBar() {
                 </DialogDescription>
               </DialogHeader>
               <DialogBody className="max-h-[min(72vh,560px)]">
+                {/* ★ 2026-10-23：语言切换从首页 header 挪到这里 ✓
+                    理由：header 上已经有版本/主题两个控件，语言是低频操作 ✗
+                    放进个人信息更符合"设置类"归属 ✓ */}
+                <div className="mb-3 flex items-center justify-between rounded-2xl bg-muted px-3 py-2">
+                  <span className="text-xs font-medium">{t('profile.language')}</span>
+                  <LanguageToggle />
+                </div>
                 <div className="space-y-5 px-5 pb-4">
                   {me && (
                     <>
@@ -893,20 +999,41 @@ export function ManagementBar() {
     },
   ];
 
+  // ★ 2026-10-23：移动端改用「底部常驻横排」✓
+  //   原来两端共用一套定位：`dockPosition` 为空时 `visibility: hidden` ✗
+  //   ⇒ 手机首次进入根本看不到入口（只能靠长按/点击别处的引导才出现 ✓）
+  //   ⇒ 而且 `touch-none` + 拖拽监听会让「在底部滑动」被当成拖动 Dock ✗ 误触 ✓
+  //   现在：移动端固定贴底 ✓ 不参与拖拽 ✓ 桌面端原样 ✓
+  const isMobileDock = dockViewport === 'mobile';
+
   return (
     <>
       <div
         ref={dockRef}
         data-slot="dock-root"
-        className="fixed z-40 select-none touch-none"
-        onPointerDown={handleDockPointerDown}
-        onPointerUp={handleDockPointerEnd}
-        onPointerCancel={handleDockPointerEnd}
-        onClickCapture={handleDockClickCapture}
+        className={
+          isMobileDock
+            ? 'pointer-events-none fixed inset-x-0 bottom-0 z-40 select-none'
+            : 'fixed z-40 select-none touch-none'
+        }
+        onPointerDown={isMobileDock ? undefined : handleDockPointerDown}
+        onPointerUp={isMobileDock ? undefined : handleDockPointerEnd}
+        onPointerCancel={isMobileDock ? undefined : handleDockPointerEnd}
+        onClickCapture={isMobileDock ? undefined : handleDockClickCapture}
         style={
-          dockPosition ?
-            {left: dockPosition.x, top: dockPosition.y, transform: 'translateX(-50%)'} :
-            {visibility: 'hidden'}
+          isMobileDock
+            ? {
+                // ★ 2026-10-23：用内联 style 而不是 Tailwind 类 ✗
+                //   实测 `pb-[max(0.75rem,env(safe-area-inset-bottom))]` 虽然生成了
+                //   （产物里有 ✓），但截图显示底部仍然贴边、左右也没留白 ✓
+                //   ⇒ 不再跟工具链较劲，直接写死数值 ✓ 100% 生效 ✓
+                paddingLeft: 18,
+                paddingRight: 18,
+                paddingBottom: 'calc(14px + env(safe-area-inset-bottom, 0px))',
+              }
+            : dockPosition ?
+              {left: dockPosition.x, top: dockPosition.y, transform: 'translateX(-50%)'} :
+              {visibility: 'hidden'}
         }
       >
         {showDockTip && (
@@ -967,12 +1094,149 @@ export function ManagementBar() {
             </div>
           </div>
         )}
+        {/* ★ 外层 pointer-events-none 是为了让"栏外空白"不挡页面点击 ✓
+            真正的可点区域由 FloatingDock 内部的横排容器接管 ✓ */}
+        <div className={isMobileDock ? 'pointer-events-auto' : 'pointer-events-auto'}>
+        {/* ★ 2026-10-24：换成 DockNav ✓ 旧版用 false && 保留（回退改 true）✓ */}
+        <DockNav
+          items={buildDockNavItems()}
+          /* ★ 2026-10-24：移动端 1.5 → 1.2（高度 93 → 74.4px，即 80% ✓）
+             等比缩放 ⇒ 圆角/字号/选中块边距一起收到 80% ✓ */
+          scale={isMobileDock ? 1.2 : 1}
+          className={cn(
+            // ★ 2026-10-24：桌面端**不锁死全宽** ✓
+            //   之前 w-full ⇒ 1000px 宽的窗口里 Dock 也撑 1000px，10 项散得很开 ✗
+            //   ⇒ 给一个上限并居中：每项 ≈ 76px，是舒服的密度 ✓
+            //   ★ 想更宽/更窄就改 max-w 这一个值（820 / 900 / 680 都行）✓
+            //   移动端仍 full width（手机本来就窄，撑满才对）✓
+            /* ★★★ 2026-10-24 修正：显式宽度，不依赖父级 ✗
+               之前 `w-full max-w-[960px]` ⇒ 实测只有 340px 宽 ✓
+               说明**父级链上有一层把宽度压成了内容宽**（flex / inline-block）✗
+               逐层排查成本高 ⇒ 直接用 `!w-[min(...)]` 强制一个宽度：
+                 · 宽屏 ⇒ 960px（10 项 × 96px，密度舒服）
+                 · 窄屏 ⇒ 撑满可视宽度减 32px（两侧各留 16px）
+               `min()` 保证不会超出视口 ✓ `!` 保证覆盖组件内的 w-full ✓ */
+            isMobileDock
+              ? '!w-[calc(100vw-34px)] -translate-y-[8px] [&_svg]:h-6 [&_svg]:w-6'
+              : '!w-[min(768px,calc(100vw-2rem))] mx-auto [&_svg]:h-5 [&_svg]:w-5',
+          )}
+        />
+        {false && (
         <FloatingDock
           items={dockItems}
-          desktopClassName="bg-background/70 backdrop-blur-md border border-border/40 shadow-lg shadow-black/10 dark:shadow-white/5 h-16 pb-3 px-4 gap-2"
-          mobileButtonClassName="bg-background/70 backdrop-blur-md border border-border/40 shadow-lg shadow-black/10 dark:shadow-white/5 h-12 w-12"
+          // ★ 2026-10-23：去掉 Tailwind 的 shadow-lg/shadow-black —— 它会盖掉 CSS 变量里的玻璃阴影 ✗
+          //   现在统一由 globals.css 的 [data-slot="dock-bar"] 控制 ✓
+          desktopClassName="bg-background/72 backdrop-blur-xl border border-border/50 h-16 pb-3 px-4 gap-2"
+          /* ★ 2026-10-23：这里**不能**再给背景/边框 ✗
+             原因：`cn(base, buttonClassName)` 里它排最后 ⇒ 会盖掉「选中态」的
+             浅色底块（`bg-foreground/[0.09]`）⇒ 点了看不出在哪一页 ✗
+             TG 的 tab 按钮本身是透明的、只有选中项有底块 ✓
+             ⇒ 玻璃质感统一由外层胶囊（[data-slot="dock-bar"]）提供 ✓
+             ⇒ 尺寸也交给组件（44px ✓ Apple HIG 最小触摸目标 ✓） */
+          mobileButtonClassName=""
         />
+        )}
+        </div>
       </div>
+
+      {/* ★★★ 2026-10-24 修复：个人信息弹窗失效 ✗
+          原因：`profile` 的 `<Dialog>` 写在 `dockItems[i].customComponent` 里 ✓
+          我用 DockNav 渲染时只取了 `icon` 和 `title` ⇒ **那个 Dialog 从没被挂到 DOM** ✗
+          ⇒ `setProfileOpen(true)` 只是改了个没人消费的状态 ✓
+          ⇒ 解决：**把这份 customComponent 单独渲染一次** ✓
+            它自带 `open={profileOpen}` 受控 ⇒ 状态一变就弹 ✓
+          ★ 只渲染 profile / quickAdd 的，避免重复渲染导航按钮本体 ✓ */}
+      {/* ══ 移动端「更多」面板（2026-10-24 ✓）══
+          4 个目的地用 2×2 网格铺开，每个卡片 = 图标 + 文字
+          卡片本身也是玻璃质感（bg-dock + backdrop-blur）⇒ 与 Dock 同语言 ✓ */}
+      <Dialog open={moreOpen} onOpenChange={setMoreOpen}>
+        <DialogContent
+          /* ★★★ 2026-10-24 修复三件事 ✓
+             ① **闪烁**：Dialog 默认有 zoom-in/out + backdrop 淡入 ✓
+                移动端 Safari 上 `backdrop-blur` 叠加缩放会**重绘两帧**⇒ 视觉上闪一下 ✗
+                ⇒ 覆盖成纯透明度过渡（`duration-150`）✓ 去掉缩放 ✓
+             ② **位置**：默认居中 ✗ 用户要求贴在 **Dock 上方** ✓
+                ⇒ `!top-auto !bottom-[104px] !translate-y-0`（104 = Dock 74.4 + 底部 26 + 间距）
+             ③ **宽度**：与 Dock 对齐，用 `calc(100vw-34px)` 保持一致 ✓
+             `!` 前缀强制覆盖 Dialog 的默认定位类 ✓ */
+          className={cn(
+            'max-w-[380px] duration-150',
+            '!top-auto !bottom-[104px] !translate-y-0',
+            'data-[state=open]:!animate-none data-[state=closed]:!animate-none',
+            'data-[state=open]:!fade-in-0 data-[state=closed]:!fade-out-0',
+            'rounded-2xl border-border/60 bg-background/92 backdrop-blur-xl',
+          )}
+        >
+          <DialogHeader>
+            <DialogTitle>更多</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-3 pt-1">
+            {MORE_ENTRIES.map((entry) => {
+              // ① 个人信息：走 profile 弹窗，不是路由 ✓
+              if ('profile' in entry) {
+                const profileItem = dockItems.find(
+                  (it) => 'title' in it && it.title === t('nav.profile'),
+                );
+                return (
+                  <button
+                    key="__profile__"
+                    type="button"
+                    onClick={() => {
+                      setMoreOpen(false);
+                      setProfileOpen(true);
+                    }}
+                    className={cn(
+                      'flex flex-col items-center justify-center gap-2 rounded-2xl px-3 py-4',
+                      'bg-muted/60 backdrop-blur transition-colors',
+                      'text-dock-idle hover:text-dock-active/70',
+                    )}
+                  >
+                    <span className="[&_svg]:h-6 [&_svg]:w-6">
+                      {profileItem?.icon ?? <User {...IconOptions} />}
+                    </span>
+                    <span className="text-xs font-medium">个人信息</span>
+                  </button>
+                );
+              }
+
+              // ② 路由项 ✓
+              const href = entry.href;
+              const it = dockItems.find((x) => 'href' in x && x.href === href);
+              if (!it) return null;
+              const isActive = pathname === href || pathname.startsWith(href + '/');
+              return (
+                <button
+                  key={href}
+                  type="button"
+                  onClick={() => {
+                    setMoreOpen(false);
+                    router.push(href);
+                  }}
+                  className={cn(
+                    'flex flex-col items-center justify-center gap-2 rounded-2xl px-3 py-4',
+                    'bg-muted/60 backdrop-blur transition-colors',
+                    isActive
+                      ? 'text-dock-active'
+                      : 'text-dock-idle hover:text-dock-active/70',
+                  )}
+                >
+                  <span className="[&_svg]:h-6 [&_svg]:w-6">{it.icon}</span>
+                  <span className="text-xs font-medium">{it.title as string}</span>
+                </button>
+              );
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {dockItems
+        .filter((it) => 'customComponent' in it && !!it.customComponent)
+        .map((it, i) => (
+          <Fragment key={`cc-${i}`}>
+            {/* 保留字号，不显示外壳：这些 customComponent 本身就是 Dialog 或内联动作 */}
+            {(it as {customComponent?: ReactNode}).customComponent}
+          </Fragment>
+        ))}
 
       <AddAccountDialog
         open={addOpen}

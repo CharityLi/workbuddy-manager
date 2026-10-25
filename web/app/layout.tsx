@@ -1,3 +1,4 @@
+import BackgroundApplier from '@/components/common/BackgroundApplier';
 import type {Metadata} from 'next';
 import {Inter, Noto_Sans_SC} from 'next/font/google';
 import {Toaster} from '@/components/ui/sonner';
@@ -69,6 +70,7 @@ export default function RootLayout({
         >
           <I18nProvider>
             <AuthProvider>
+              <BackgroundApplier />
               {children}
               <Toaster />
             </AuthProvider>
