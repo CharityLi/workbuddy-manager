@@ -561,6 +561,18 @@ def start_update(target: str, *, source: str = 'release') -> tuple[bool, str]:
             '请手动替换代码、重新构建前端，然后运行 windows\\service-tools.ps1 restart。'
         )
     if target in ('upstream', 'both') and not can_control_docker():
+        # ★★★ 2026-10-25：native 部署走另一条分支 ✗
+        #   旧逻辑只看「能不能跑 docker info」，不看 WB2API_MODE ✓
+        #   ⇒ 本地原生部署（start.sh / stop.sh 管上游）也会被拦在这里，
+        #     提示"无法操作 docker"，可上游根本不是容器 ✗
+        #   ⇒ native 下改为**给出本地升级指引** ✓
+        if config.WB2API_MODE == 'native':
+            return False, (
+                '本地原生部署不支持网页一键更新上游。'
+                '请在上游目录拉取新代码后执行 stop.sh 再 start.sh'
+                '（脚本路径见 .env 的 WB2API_STOP_SCRIPT / WB2API_START_SCRIPT）；'
+                '或使用「仅更新管理端」。'
+            )
         # 重建上游容器需要操作宿主 docker。判定按**实际能力**（能否跑通
         # docker info），而不是"是否在容器里"：容器挂了 docker.sock 就完全
         # 能做这些事（与宿主部署等价）。
