@@ -491,6 +491,21 @@ async def list_accounts(upstream_id: int | None = Query(None),
         uid = str(a.get('uid') or '')
         a['note'] = notes.get(uid, '')
         a['checkin_today'] = done_today.get(uid)
+        # ★ 2026-10-23：显示名「备注优先，昵称兜底」✓
+        #   为什么在后端覆盖而不是前端逐处判：前端有十几处直接读 display_name
+        #   （账号页两套视图 / 仪表盘 / 请求日志 / 签到记录 ✓）
+        #   逐处改成 `note || display_name` 迟早漏一处 ✓
+        #   ⇒ 入口处统一覆盖 ✓ 原名另存 display_name_raw 供需要原始昵称的地方用 ✓
+        raw_name = a.get('display_name') or a.get('nickname') or ''
+        a['display_name_raw'] = raw_name
+        a['nickname_raw'] = a.get('nickname') or ''
+        # ★★ 2026-10-23 修正：**`nickname` 也要覆盖** ✗
+        #   上一版只改了 `display_name` ⇒ 前端读的是 `a.nickname`（仪表盘快照、
+        #   任务页、代理绑定、各种弹窗，共 8+ 处）⇒ 全都没变化 ✓
+        #   ⇒ 在数据出口统一覆盖 nickname ✓ 所有读它地方自动生效 ✓
+        display = a['note'] or raw_name or uid[:8]
+        a['display_name'] = display
+        a['nickname'] = display
     synced = sum(1 for a in accounts if a.get('credits') is not None)
     return {
         'total': len(accounts),

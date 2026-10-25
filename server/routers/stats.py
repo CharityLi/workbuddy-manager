@@ -119,9 +119,21 @@ def summary(realm: str | None = None,
         )
         return int(row['r']), int(row['t']), float(row['c'] or 0)
 
+    # ★ 2026-10-23：单独聚合「模型输出 token」（completion ✓）
+    #   用途：仪表盘新增一张「今天获取 Token」卡（绿色 ✓）
+    #   口径：上游返回的 completion_tokens 合计 = 模型真正生成给你的内容量 ✓
+    def agg_completion(where: str, args: tuple) -> int:
+        row = db.query_one(
+            f'SELECT COALESCE(SUM(completion_tokens),0) AS c FROM usage_daily WHERE {where}{rf}',
+            args + rargs,
+        )
+        return int(row['c'] or 0)
+
     t_req, t_tok, t_credit = agg('day = ?', (today,))
     w_req, w_tok, w_credit = agg('day >= ?', (week,))
     a_req, a_tok, a_credit = agg('1=1', ())
+    t_comp = agg_completion('day = ?', (today,))       # 今日输出 token ✓
+    w_comp = agg_completion('day >= ?', (week,))       # 本周输出 token ✓
 
     # 活跃密钥：密钥本身**不分版本**（同一把密钥可调两个版本，由模型名决定路由），
     # 所以按版本时应统计「**该版本有调用**的密钥数」，而不是「属于该版本的密钥数」
@@ -147,6 +159,9 @@ def summary(realm: str | None = None,
         'total_credit': a_credit,
         'week_requests': w_req,
         'week_tokens': w_tok,
+        # ★ 2026-10-23 新增：模型输出 token（completion ✓）
+        'today_completion_tokens': t_comp,
+        'week_completion_tokens': w_comp,
         'total_requests': a_req,
         'total_tokens': a_tok,
         'active_keys': int(active_keys),

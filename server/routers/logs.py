@@ -10,6 +10,86 @@ from .. import db, keysvc, security
 router = APIRouter(prefix='/api/logs', tags=['logs'])
 
 
+# ═══════════════════════════════════════════════════════════════════
+# 账号回填（2026-10-23 实现 ✓）
+#
+# 背景：request_logs.account 一直是 NULL ✗
+#   代码注释说"账号是采集上游日志后按时间对回来的"——但那套回填**从来没实现** ✗
+#   ⇒ 现在补上：读网关的 request-logs/*.jsonl（那里有 request_id + account ✓）
+#   ⇒ 按 (秒级时间, 模型, 总 token) 匹配回来 ✓
+#
+# ★ 只读文件 ✓ 不改网关 ✓ 不改库 ✓ 每次查询现算 ✓（几万行也就毫秒级 ✓）
+# ★ 匹配不上就保持 None ⇒ 前端显示「—」（与原来一致 ✓）
+# ═══════════════════════════════════════════════════════════════════
+
+_GW_INDEX_CACHE: tuple[float, dict] | None = None   # (mtime, index) ✓ 按 mtime 缓存
+
+
+def _account_index_from_gateway(days: int = 2) -> dict[tuple, str]:
+    """建 (ts秒, model, total_tokens) → account 的索引 ✓
+
+    顺带建一份粗粒度 (ts秒, model) → account 兜底用 ✓
+    返回结构：{'exact': {...}, 'loose': {...}}
+    """
+    global _GW_INDEX_CACHE
+    import json as _json
+    import time as _time
+    from datetime import date, timedelta
+    from pathlib import Path
+
+    from .. import config
+
+    logdir = Path(config.UPSTREAM_DIR) / 'data' / 'request-logs'
+    if not logdir.is_dir():
+        return {'exact': {}, 'loose': {}}
+
+    files = []
+    for i in range(days):
+        d = (date.today() - timedelta(days=i)).isoformat()
+        f = logdir / f'requests-{d}.jsonl'
+        if f.is_file():
+            files.append(f)
+    if not files:
+        return {'exact': {}, 'loose': {}}
+
+    newest = max(f.stat().st_mtime for f in files)
+    if _GW_INDEX_CACHE and abs(_GW_INDEX_CACHE[0] - newest) < 0.5:
+        return _GW_INDEX_CACHE[1]                       # 缓存命中 ✓
+
+    exact: dict[tuple, str] = {}
+    loose: dict[tuple, str] = {}
+    for f in files:
+        try:
+            with f.open(encoding='utf-8') as fh:
+                for line in fh:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        d = _json.loads(line)
+                    except Exception:
+                        continue
+                    acct = d.get('account')
+                    if not acct:
+                        continue
+                    ts_raw = str(d.get('time') or '')
+                    try:
+                        # "2026-10-23T16:19:02.545072+08:00" → unix 秒（本地时区 ✓）
+                        from datetime import datetime
+                        ts = int(datetime.fromisoformat(ts_raw).timestamp())
+                    except Exception:
+                        continue
+                    model = str(d.get('model') or '')
+                    tot = int(d.get('total_tokens') or 0)
+                    exact[(ts, model, tot)] = acct
+                    loose[(ts, model)] = acct
+        except Exception:
+            continue
+    idx = {'exact': exact, 'loose': loose}
+    _GW_INDEX_CACHE = (newest, idx)
+    return idx
+
+
 @router.get('')
 def list_logs(
     page: int = 1,
@@ -74,6 +154,58 @@ def list_logs(
         f'ORDER BY l.id DESC LIMIT ? OFFSET ?',
         (*args, size, (page - 1) * size),
     )
+    # ★ 2026-10-23：账号列补全（读网关 JSONL ✓ 只读 ✓）
+    _acc_idx = _account_index_from_gateway(days=2)
+
+    def _model_variants(name: str) -> list[str]:
+        """模型名的多种写法 ✓
+
+        为什么需要：manager 存的 `model` 是**客户端请求名**（不带前缀 ✓）
+        而网关日志里是**实际发往上游的名字**（带 `cn:` / `global:` ✓）
+        ⇒ 不补这几种变体，就永远匹配不上 ✗（实测：全部 miss ✓）
+        """
+        n = (name or '').strip()
+        if not n:
+            return []
+        out = [n]
+        if not n.startswith(('cn:', 'global:')):
+            out += ['cn:' + n, 'global:' + n]
+            # 去掉版本后缀的形态也可能出现（如 deepseek-v4.1-flash-xxx）✓
+        return out
+
+    def _fill_account(r) -> str | None:
+        """优先用库里已有的 ✓；空则去网关日志里找 ✓；找不到返回 None ✓"""
+        if r['account']:
+            return r['account']
+        ex = _acc_idx.get('exact') or {}
+        lo = _acc_idx.get('loose') or {}
+        ts = int(r['ts'] or 0)
+        model = str(r['model'] or '')
+        mapped = str(r['mapped_model'] or '')
+        models = []
+        for m in (model, mapped):
+            for v in _model_variants(m):
+                if v not in models:
+                    models.append(v)
+        tot = int((r['prompt_tokens'] or 0) + (r['completion_tokens'] or 0))
+        # ① 精确匹配（秒 + 模型变体 + token 数 ✓ 基本唯一 ✓）
+        for mm in models:
+            k = (ts, mm, tot)
+            if k in ex:
+                return ex[k]
+        # ② 退一步只按 秒 + 模型变体 ✓
+        for mm in models:
+            k = (ts, mm)
+            if k in lo:
+                return lo[k]
+        # ③ 再宽一点：±5 秒内 + 同模型变体 ✓（时钟/耗时偏差 ✓）
+        for dt in (-1, 1, -2, 2, -3, 3, -5, 5):
+            for mm in models:
+                k = (ts + dt, mm)
+                if k in lo:
+                    return lo[k]
+        return None
+
     items = [
         {
             'id': r['id'],
@@ -102,7 +234,7 @@ def list_logs(
             # 本次实际用了哪个上游账号（issue #69）。NULL = 尚未回填 ——
             # 账号是采集上游日志后按时间对回来的，比请求本身晚几秒，
             # 所以刚打完的请求这一列可能是空的（界面显示「—」，刷新即可）。
-            'account': r['account'],
+            'account': _fill_account(r),
             # 输入侧命中缓存的 token 数。NULL 与 0 含义不同：
             # NULL = 上游没给这个字段，0 = 这次确实没命中（见 db 的列说明）。
             'cache_hit_tokens': r['cache_hit_tokens'],
