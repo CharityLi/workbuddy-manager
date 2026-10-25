@@ -7,7 +7,7 @@ import secrets
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from .. import db, security
+from .. import config, db, security
 from ..iputil import client_ip
 from ..services import modelmap, reload, updater, wb2api
 
@@ -49,7 +49,13 @@ async def save_upstream(body: dict, request: Request,
     #
     # 判据是**实际能力**而非"是否容器"：容器挂了 docker.sock 就能自动重载
     # （与宿主部署等价），宿主没装 docker 反而不能。
-    if not updater.can_control_docker():
+    # ★★★ 2026-10-25：native 部署下**不该走 docker 判定** ✗
+    #   旧逻辑无条件调 `can_control_docker()` ⇒ 本地原生部署（WB2API_MODE=native）
+    #   即使启停脚本齐备，也会被判成"无法操作 docker"，把 reload 结果覆盖成 False ✗
+    #   用户看到的就是「配置已写入，但当前环境无法操作 docker」——
+    #   而实际上 `reload.request_restart()` 早就通过 start.sh 重启过了 ✓
+    #   ⇒ 条件是 **既不 native、又不能控 docker** 才降级提示 ✓
+    if config.WB2API_MODE != 'native' and not updater.can_control_docker():
         result['reload_scheduled'] = False
         result['reload_hint'] = (
             '配置已写入，但当前环境无法操作 docker，不会自动重启上游容器。'
