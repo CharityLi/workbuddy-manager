@@ -237,7 +237,12 @@ class DailyPlanTest(unittest.TestCase):
         # await，用例**静默不执行**（曾经就这么漏掉过两条断言）。
         from server.routers import accounts as accounts_router
         out = {'claimed': 2, 'credit': 1000, 'already': 1, 'nothing': 3, 'failed': 0}
-        with mock.patch.object(accounts_router, 'claim_compensation_all',
+        from server import upstreamsvc
+        # run_task 现在会**逐个分组**跑一遍，这里限定成单个分组，
+        # 否则 await_count 会等于分组数（线上多分组时就是 2 次以上）。
+        with mock.patch.object(upstreamsvc, 'list_upstreams',
+                               return_value=[{'id': 1, 'name': '默认上游'}]), \
+             mock.patch.object(accounts_router, 'claim_compensation_all',
                                new_callable=mock.AsyncMock, return_value=out) as call:
             ok, message = asyncio.run(dailyplan.run_task('compensation'))
         self.assertTrue(ok, '「无可领」是正常态，不该算失败')
