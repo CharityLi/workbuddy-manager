@@ -301,6 +301,9 @@ class WriteEndpointScopeMatrixTest(unittest.TestCase):
         'POST /api/settings/proxy/probe',
         'POST /api/settings/upstash/reload',   # 评审补：与 /api/restart 同动作
         'POST /api/system/update',
+        # 手动巡检上游：只读，但会对 GitHub 发请求（匿名限额按 IP 算），
+        # 泄露的令牌不该能把限额打满。
+        'POST /api/system/upstream-check',
         'POST /api/task-logs/clear',
         'POST /api/tokens',
         'POST /api/users',
@@ -309,6 +312,10 @@ class WriteEndpointScopeMatrixTest(unittest.TestCase):
         'DELETE /api/upstreams/{upstream_id}',
         'PATCH /api/upstreams/{upstream_id}',
         'POST /api/upstreams',
+        # 给分组起/停上游实例：会写 launchd plist、拉起或结束一个进程、还可能接管
+        # 占用端口的进程 —— 影响的是**服务可用性**，比改一行配置重得多。
+        'POST /api/upstreams/{upstream_id}/service',
+        'DELETE /api/upstreams/{upstream_id}/service',
         # 账号分组互转：把账号文件在分组的目录之间移动——等于改「这个号属于哪个
         # 池」，与删账号同级（都会改变池的构成），只对会话开放。
         'POST /api/accounts/{filename}/move',

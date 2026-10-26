@@ -5,6 +5,9 @@ import type {Realm} from './realm-context';
 import type {
   Account,
   AccountsResponse,
+  AuthDirOption,
+  UpstreamServiceResult,
+  UpstreamServiceState,
   RefreshPlan,
   DailyPlan,
   DailyTask,
@@ -453,6 +456,17 @@ export const upstreamsApi = {
   remove: (id: number) => del<{ok: boolean}>(`/api/upstreams/${id}`),
   /** 探测该上游是否可达（走它的 /healthz）；失败原因原样返回给界面。 */
   probe: (id: number) => post<{ok: boolean; message: string}>(`/api/upstreams/${id}/probe`),
+  /** 账号目录候选：编辑/新建分组时直接选，免得手敲绝对路径敲错还看不出来。 */
+  authDirOptions: () => get<{items: AuthDirOption[]}>('/api/upstreams/auth-dir-options'),
+  /** 该分组的上游实例现状（是否已交给 launchd、pid、端口）。 */
+  serviceStatus: (id: number) =>
+    get<UpstreamServiceState>(`/api/upstreams/${id}/service`),
+  /** 一键起该分组的实例并登记为 launchd 任务（开机自启）。 */
+  startService: (id: number) =>
+    post<UpstreamServiceResult>(`/api/upstreams/${id}/service`),
+  /** 从 launchd 摘掉该分组的实例（文件都留着）。 */
+  stopService: (id: number) =>
+    del<{ok: boolean; steps: string[]}>(`/api/upstreams/${id}/service`),
 };
 
 export const keyApi = {

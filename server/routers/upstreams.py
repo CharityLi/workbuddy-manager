@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from .. import security, upstreamsvc
 from ..iputil import client_ip
-from ..services import wb2api
+from ..services import upstream_service, wb2api
 
 router = APIRouter(prefix='/api/upstreams', tags=['upstreams'])
 
@@ -55,7 +55,7 @@ def _serialize(items: list[dict]) -> list[dict]:
 
     编辑时前端不预填，**留空 = 不修改**（PATCH 语义本来就是这样，见 update_upstream）。
     """
-    from ..services import wb2api
+    from ..services import upstream_service, wb2api
     counts = upstreamsvc.key_counts()
     out = []
     for item in items:
@@ -74,6 +74,63 @@ def _serialize(items: list[dict]) -> list[dict]:
 @router.get('')
 def list_upstreams(user: dict = Depends(security.current_user)) -> dict:
     return {'items': _serialize(upstreamsvc.list_upstreams())}
+
+
+@router.get('/auth-dir-options')
+def auth_dir_options(user: dict = Depends(security.current_user)) -> dict:
+    """账号目录的候选清单，供「编辑/新建分组」直接选而不是手敲路径。
+
+    为什么要有它：账号目录是**绝对路径**，手敲一个不存在的路径不会报错（分组照
+    样建好），只是那个分组永远没有账号 —— 表现为「新分组里一个号都没有」，很难
+    联想到是路径写错。给候选清单后，用户只需要认名字。
+
+    候选来自两处：
+      1. 已经配过的目录（含默认分组的 `WB_AUTH_DIR`）——复用别人的目录是常见需求；
+      2. 默认分组目录的**同级** `auths*` 目录 —— 上游按「auths-<分组名>」建目录，
+          新实例的目录往往已经在磁盘上了。
+    每项带 `account_count`（目录里 `.json` 个数）与 `owner`（哪个分组正在用它），
+    方便判断「这个目录是不是已经被别人占了」。
+    """
+    items = upstreamsvc.list_upstreams()
+    found: dict[str, dict] = {}
+    for up in items:
+        path = str(up.get('auth_dir') or '').strip()
+        if not path:
+            continue
+        found[path] = {
+            'path': path,
+            'name': Path(path).name,
+            'is_default': bool(up.get('is_default')),
+            'owner': '' if up.get('is_default') else str(up.get('name') or ''),
+        }
+
+    default_dir = next((str(u.get('auth_dir') or '') for u in items if u.get('is_default')), '')
+    if default_dir:
+        try:
+            siblings = sorted(Path(default_dir).parent.glob('auths*'))
+        except OSError:
+            siblings = []
+        for path in siblings:
+            if not path.is_dir():
+                continue
+            found.setdefault(str(path), {
+                'path': str(path),
+                'name': path.name,
+                'is_default': str(path) == default_dir,
+                'owner': '',
+            })
+
+    out = []
+    for meta in found.values():
+        directory = Path(meta['path'])
+        try:
+            count = sum(1 for f in directory.glob('*.json') if f.is_file())
+        except OSError:
+            count = 0
+        out.append({**meta, 'exists': directory.is_dir(), 'account_count': count})
+    # 默认分组排最前，其后按目录名（稳定顺序，避免下拉项跳动）
+    out.sort(key=lambda item: (not item['is_default'], item['name'].lower()))
+    return {'items': out}
 
 
 @router.post('')
@@ -110,6 +167,66 @@ def update_upstream(upstream_id: int, body: UpstreamPatch, request: Request,
                    f"id={updated['id']}；字段={','.join(sorted(patch)) or '无'}；"
                    f'来源 {client_ip(request)}')
     return _serialize([updated])[0]
+
+
+@router.get('/{upstream_id}/service')
+def service_status(upstream_id: int,
+                   user: dict = Depends(security.current_user)) -> dict:
+    """该分组的上游实例现状（是否已交给 launchd、pid、端口、plist 路径）。"""
+    upstream = upstreamsvc.get_upstream(upstream_id)
+    if upstream is None:
+        raise HTTPException(status_code=404, detail='上游不存在')
+    return upstream_service.status(upstream)
+
+
+@router.post('/{upstream_id}/service')
+def service_start(upstream_id: int, request: Request, takeover: bool = False,
+                  user: dict = Depends(security.require_session_admin)) -> dict:
+    """一键把该分组的上游实例拉起来，并登记为 launchd 任务（开机自启）。
+
+    做四件事，全部幂等：准备 `instance-<slug>/`（config.json、wb2api 与 auths
+    符号链接、data/）、写 `~/Library/LaunchAgents/com.wb2api.gateway.<slug>.plist`、
+    `launchctl bootstrap` 加载、把 `usage_file` 回填成 `instance/data/usage.json`
+    （账号页「今日消耗」靠它合并各分组的台账）。
+    """
+    upstream = upstreamsvc.get_upstream(upstream_id)
+    if upstream is None:
+        raise HTTPException(status_code=404, detail='上游不存在')
+    try:
+        result = upstream_service.start(upstream, takeover=takeover)
+    except upstream_service.ServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    instance_dir = Path(result['instance_dir'])
+    if not str(upstream.get('usage_file') or '').strip():
+        # 实例自己会写 data/usage.json：登记上，多分组「今日消耗」才能合并到它
+        try:
+            upstreamsvc.update_upstream(
+                upstream_id, {'usage_file': str(instance_dir / 'data' / 'usage.json')},
+            )
+            result['steps'].append('登记 usage_file')
+        except ValueError:
+            pass
+    security.audit(user, 'start_upstream_service', str(upstream.get('name') or ''),
+                   f"id={upstream_id}；端口={result.get('port')}；pid={result.get('pid')}；"
+                   f'来源 {client_ip(request)}')
+    return result
+
+
+@router.delete('/{upstream_id}/service')
+def service_stop(upstream_id: int, request: Request,
+                 user: dict = Depends(security.require_session_admin)) -> dict:
+    """把该分组的上游实例从 launchd 摘掉（进程结束，文件都留着）。"""
+    upstream = upstreamsvc.get_upstream(upstream_id)
+    if upstream is None:
+        raise HTTPException(status_code=404, detail='上游不存在')
+    try:
+        result = upstream_service.stop(upstream)
+    except upstream_service.ServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    security.audit(user, 'stop_upstream_service', str(upstream.get('name') or ''),
+                   f"id={upstream_id}；来源 {client_ip(request)}")
+    return result
 
 
 @router.delete('/{upstream_id}')

@@ -225,14 +225,17 @@ def get_upstream_log(user: dict = Depends(security.current_user)) -> dict:
 
 
 @router.post('/upstream-check')
-async def check_upstream(user: dict = Depends(security.current_user)) -> dict:
-    """立刻巡检一次上游（管理员操作，会打 GitHub API）。
+async def check_upstream(
+    user: dict = Depends(security.require_session_admin),
+) -> dict:
+    """立刻巡检一次上游（会打 GitHub API）。
 
     只读：拉一次 Releases 列表刷新缓存，并更新本地状态；不下载产物、不升级、
-    不改动任何本地文件。
+    不改动任何本地文件。仍然只对**会话**管理员开放：它要往外发请求，而
+    GitHub 匿名限额是按 IP 算的 —— 拿一把泄露的令牌把限额打满，会让「自动检查
+    有没有新版本」这一整块功能失效（`require_session_admin` 而不是自己判 role，
+    是为了让 `/api/tokens` 的权限矩阵扫描能看见它）。
     """
-    if user.get('role') != 'admin':
-        raise HTTPException(status_code=403, detail='仅管理员可手动巡检上游')
     return await asyncio.to_thread(upstreamwatch.check, True)
 
 

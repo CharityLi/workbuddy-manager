@@ -178,6 +178,10 @@ class PostParamLocationAuditTest(unittest.TestCase):
         '/api/accounts/{filename}/proxy': {'upstream_id'},
         # 手写权重（issue #187）：与 proxy 同形，按 `?upstream_id=` 指定分组。
         '/api/accounts/{filename}/weight': {'upstream_id'},
+        # 分组实例的一键启用：`takeover=true` 表示允许接管「本分组目录起的孤儿进程」
+        # （端口被它占着，不接管就必然 bind 失败）。默认 false = 只报错不动别人进程，
+        # 所以前端不传也能用，只有用户在提示后确认接管时才带上它。
+        '/api/upstreams/{upstream_id}/service': {'takeover'},
         # 代理线路（设置 → 代理）：改名/删除要按分组重绑账号，前端按 query 传。
         '/api/proxy-routes/{name}': {'upstream_id'},
         '/api/proxy-routes/{name}/accounts': {'upstream_id'},

@@ -19,7 +19,7 @@ import {errText, upstreamsApi} from '@/lib/api';
 import {useAuth} from '@/lib/auth-context';
 import {useT} from '@/lib/i18n/provider';
 import {notify} from '@/lib/toast';
-import type {UpstreamEndpoint} from '@/lib/types';
+import type {UpstreamEndpoint, UpstreamServiceState} from '@/lib/types';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {ConfirmDialog} from '@/components/common/layout/ConfirmDialog';
@@ -35,6 +35,9 @@ export function UpstreamEndpoints() {
   const [editing, setEditing] = useState<UpstreamEndpoint | null>(null);
   const [busy, setBusy] = useState(false);
   const [probing, setProbing] = useState<number | null>(null);
+  /** 每个分组的上游实例状态（是否已交给 launchd、pid）。按分组 id 存。 */
+  const [services, setServices] = useState<Record<number, UpstreamServiceState>>({});
+  const [starting, setStarting] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -53,6 +56,63 @@ export function UpstreamEndpoints() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  /**
+   * 拉各分组的实例状态。默认分组用的是部署时那套服务，没有「实例」概念，跳过。
+   * 拉不到就当未知（按钮仍可见），不能因为它失败让整页报错。
+   */
+  const loadServices = useCallback(async (list: UpstreamEndpoint[]) => {
+    const targets = list.filter((u) => !u.is_default && u.id != null);
+    const results = await Promise.all(
+      targets.map(async (u) => {
+        try {
+          const state = await upstreamsApi.serviceStatus(u.id as number);
+          return [u.id as number, state] as const;
+        } catch {
+          return null;
+        }
+      }),
+    );
+    const next: Record<number, UpstreamServiceState> = {};
+    for (const entry of results) {
+      if (entry) next[entry[0]] = entry[1];
+    }
+    setServices(next);
+  }, []);
+
+  useEffect(() => {
+    if (items.length) void loadServices(items);
+  }, [items, loadServices]);
+
+  /** 一键起该分组的实例（幂等：已起过只会补齐缺的部分）。 */
+  async function startService(item: UpstreamEndpoint) {
+    if (item.id == null || starting != null) return;
+    setStarting(item.id);
+    try {
+      const r = await upstreamsApi.startService(item.id);
+      notify.ok(t('upstreams.serviceStarted', {port: r.port ?? '-'}));
+      await loadServices(items);
+    } catch (e) {
+      // 失败原因（端口被占、目录不存在）后端已经写成可执行的一句话
+      notify.err(errText(e));
+    } finally {
+      setStarting(null);
+    }
+  }
+
+  async function stopService(item: UpstreamEndpoint) {
+    if (item.id == null) return;
+    setStarting(item.id);
+    try {
+      await upstreamsApi.stopService(item.id);
+      notify.ok(t('upstreams.serviceStopped'));
+      await loadServices(items);
+    } catch (e) {
+      notify.err(errText(e));
+    } finally {
+      setStarting(null);
+    }
+  }
 
   function openCreate() {
     setEditing(null);
@@ -165,6 +225,31 @@ export function UpstreamEndpoints() {
                   <Button variant="outline" className="rounded-full" onClick={() => openEdit(item)}>
                     {t('upstreams.edit')}
                   </Button>
+                  {services[item.id as number]?.loaded ? (
+                    <Button
+                      variant="outline"
+                      className="rounded-full"
+                      disabled={starting === item.id}
+                      onClick={() => void stopService(item)}
+                      title={t('upstreams.serviceRunningHint', {
+                        pid: services[item.id as number]?.pid ?? '-',
+                      })}
+                    >
+                      {t('upstreams.serviceRunning', {
+                        pid: services[item.id as number]?.pid ?? '-',
+                      })}
+                    </Button>
+                  ) : (
+                    <Button
+                      className="rounded-full"
+                      disabled={starting === item.id}
+                      onClick={() => void startService(item)}
+                    >
+                      {starting === item.id
+                        ? t('upstreams.serviceStarting')
+                        : t('upstreams.serviceStart')}
+                    </Button>
+                  )}
                   <ConfirmDialog
                     title={t('upstreams.deleteTitle')}
                     description={t('upstreams.deleteDesc', {name: item.name})}

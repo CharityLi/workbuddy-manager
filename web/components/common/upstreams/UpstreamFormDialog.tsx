@@ -25,7 +25,7 @@ import {useEffect, useState} from 'react';
 import {errText, upstreamsApi} from '@/lib/api';
 import {useT} from '@/lib/i18n/provider';
 import {notify} from '@/lib/toast';
-import type {UpstreamEndpoint} from '@/lib/types';
+import type {AuthDirOption, UpstreamEndpoint} from '@/lib/types';
 import {Button} from '@/components/ui/button';
 import {
   Dialog,
@@ -105,6 +105,11 @@ export function UpstreamFormDialog({
   const [busy, setBusy] = useState(false);
   /** 账号目录是否被手动改过：没改过时跟随名称刷新建议路径 */
   const [dirTouched, setDirTouched] = useState(false);
+  /**
+   * 账号目录候选。为什么不让人手敲路径：账号目录错了**不报错**（分组照样建好），
+   * 只是那个分组永远没有账号，看起来像「上游不干活」。
+   */
+  const [dirOptions, setDirOptions] = useState<AuthDirOption[]>([]);
 
   const defaultBaseUrl = defaultUpstream?.base_url || '';
   const defaultDir = defaultUpstream?.auth_dir || '';
@@ -133,6 +138,60 @@ export function UpstreamFormDialog({
       setDirTouched(false);
     }
   }, [open, editing, defaultBaseUrl, defaultDir]);
+
+  // 拉候选目录（打开时一次即可：目录是磁盘现状，不需要实时）
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    upstreamsApi
+      .authDirOptions()
+      .then((res) => {
+        if (alive) setDirOptions(res.items || []);
+      })
+      // 候选只是便利功能：拿不到就退化成手填，不打扰用户
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [open]);
+
+  /** 候选目录的一排小按钮：点一下就填进输入框（仍然可以手改）。 */
+  function renderDirOptions() {
+    if (dirOptions.length < 2) return null;
+    return (
+      <div className="flex flex-wrap gap-1.5">
+        {dirOptions.map((opt) => {
+          const active = form.auth_dir === opt.path;
+          const taken = !!opt.owner && !active;
+          return (
+            <button
+              key={opt.path}
+              type="button"
+              title={opt.path}
+              onClick={() => {
+                setForm((f) => ({...f, auth_dir: opt.path}));
+                setDirTouched(true);
+              }}
+              className={`rounded-full border px-2 py-0.5 text-[11px] transition-colors ${
+                active
+                  ? 'border-primary/60 bg-primary/10 text-primary'
+                  : 'border-border text-muted-foreground hover:bg-accent'
+              }`}
+            >
+              {opt.name}
+              <span className="ml-1.5 opacity-70">
+                · {opt.is_default
+                  ? t('upstreams.dirOptionDefault')
+                  : taken
+                    ? t('upstreams.dirOptionTaken', {name: opt.owner})
+                    : t('upstreams.dirOptionAccounts', {n: opt.account_count})}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
 
   async function submit() {
     if (busy) return;
@@ -189,6 +248,17 @@ export function UpstreamFormDialog({
                 maxLength={64}
               />
             </div>
+            {simple && (
+              <div className="space-y-1.5">
+                <Label className="text-[11px] text-muted-foreground">
+                  {t('upstreams.fieldDir')}
+                </Label>
+                {renderDirOptions()}
+                <p className="truncate text-[11px] leading-4 text-muted-foreground" title={form.auth_dir}>
+                  {form.auth_dir || t('upstreams.fieldDirPlaceholder')}
+                </p>
+              </div>
+            )}
             {!simple && (
               <>
                 <div className="space-y-1.5">
@@ -226,6 +296,7 @@ export function UpstreamFormDialog({
                     placeholder={t('upstreams.fieldDirPlaceholder')}
                     maxLength={500}
                   />
+                  {renderDirOptions()}
                   <p className="text-[11px] leading-4 text-muted-foreground">
                     {t('upstreams.fieldDirHint')}
                   </p>

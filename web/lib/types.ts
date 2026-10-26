@@ -416,6 +416,42 @@ export interface ModelCatalog {
  * `id === null && is_default` 那条是**默认上游**：来自环境变量 / 上游 config.json，
  * 不是数据库记录，所以它没有 id、也不可改不可删。
  */
+/** 分组实例的运行状态（`GET /api/upstreams/{id}/service`）。 */
+export interface UpstreamServiceState {
+  label: string;
+  plist: string;
+  plist_exists: boolean;
+  instance_dir: string;
+  instance_exists: boolean;
+  port: number | null;
+  loaded: boolean;
+  pid: number | null;
+  /** 是否已登记为 launchd 任务（= 开机自启） */
+  autostart: boolean;
+}
+
+/** 一键启停分组实例的结果（每步做了什么都在 steps 里）。 */
+export interface UpstreamServiceResult {
+  ok: boolean;
+  pid?: number;
+  port?: number;
+  steps: string[];
+  instance_dir?: string;
+  label?: string;
+}
+
+/** 账号目录候选（`GET /api/upstreams/auth-dir-options` 的一项）。 */
+export interface AuthDirOption {
+  path: string;
+  /** 目录名（只显示这一段，完整路径放 title） */
+  name: string;
+  is_default: boolean;
+  /** 正在使用它的分组名；空 = 没被占用 */
+  owner: string;
+  exists: boolean;
+  account_count: number;
+}
+
 export interface UpstreamEndpoint {
   id: number | null;
   name: string;
