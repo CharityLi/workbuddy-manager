@@ -354,17 +354,25 @@ class DashboardGroupCoverageTest(unittest.TestCase):
         code = _code(_DASHBOARD)
         self.assertIn('poolTotals(', code,
                       '「反代上游」面板没有走 poolTotals（一个分组的口径）')
-        # ⚠️ 判据必须钉住**面板里那一次** `slices.map`。
-        # 原本写的是 `assertRegex(code, r'slices\.map\(')`，那是空转的：
-        # `scopedSlices` 的定义里也有 `slices.map((s) => ({…}))`（第 242 行），
-        # 把面板改成只画第一个分组，那一处照样满足它（变异测试实测确认过）。
-        # 所以要求 `slices.map(…)` 之后不远处出现 `<UpstreamBlock`——那才是
-        # 「每个分组一块」的渲染点。
+        # 2026-10-26 改版：多分组时**顶部一排可点卡片**（一个分组一张）＋下方只画
+        # 选中那一块的详情（原来是一个分组一块纵向排开，两组面板就翻倍高）。
+        # 「不求和」这个约束没变，判据跟着改成钉住新结构：
+        #   ① 卡片来自面板里那一次 `slices.map`（每个分组一张，不是一张汇总卡）；
+        #   ② 详情块只吃 `activeSlice`（单个 slice，不可能把各组加起来）。
+        # ⚠️ 仍不能退化成 `assertRegex(code, r'slices\.map\(')`——`scopedSlices`
+        # 定义里也有一次 `slices.map`，那样写等于没断言（变异测试实测确认过）。
         self.assertRegex(
             code,
-            r'(?s)slices\.map\(.{0,400}?<UpstreamBlock',
-            '「反代上游」面板没有按分组逐个渲染（要求 slices.map 之后出现 UpstreamBlock）',
+            r'(?s)slices\.map\(\(s\)\s*=>\s*\{.{0,600}?setActiveGid\(',
+            '「反代上游」面板没有按分组渲染可点卡片（要求 slices.map 里出现 setActiveGid）',
         )
+        self.assertRegex(
+            code,
+            r'(?s)<UpstreamBlock\s+slice=\{activeSlice\}',
+            '详情块必须只渲染选中的那一块（slice={activeSlice}），不能传入各组汇总',
+        )
+        self.assertIn('const activeSlice', code,
+                      '缺少 activeSlice（选中分组的那一份 slice），详情可能又退回全量汇总')
 
 
 if __name__ == '__main__':

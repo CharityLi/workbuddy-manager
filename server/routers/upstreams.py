@@ -30,6 +30,8 @@ class UpstreamIn(BaseModel):
     auth_dir: str = Field(default='', max_length=500)
     # 分组上游实例的容器名（可选）：面板「重启该分组」按它 docker restart。
     container: str = Field(default='', max_length=64)
+    # 该分组的用量台账（上游实例 data/usage.json 的绝对路径）：账号页「今日消耗」靠它合并。
+    usage_file: str = Field(default='', max_length=500)
 
 
 class UpstreamPatch(BaseModel):
@@ -40,6 +42,7 @@ class UpstreamPatch(BaseModel):
     enabled: bool | None = None
     auth_dir: str | None = None
     container: str | None = None
+    usage_file: str | None = None
 
 
 def _serialize(items: list[dict]) -> list[dict]:
@@ -83,6 +86,7 @@ def create_upstream(body: UpstreamIn, request: Request,
             name=body.name, base_url=body.base_url, api_key=body.api_key,
             note=body.note, enabled=body.enabled,
             auth_dir=body.auth_dir, container=body.container,
+            usage_file=body.usage_file,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

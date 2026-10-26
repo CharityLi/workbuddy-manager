@@ -621,6 +621,10 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     # 分组上游实例的容器名（可选）：面板的「重启」用 `docker restart <name>`。
     # 空 = 从面板重启该分组时明确报错；绝不猜一个名字去重启别的服务。
     ('upstreams', 'container', "TEXT NOT NULL DEFAULT ''"),
+    # 分组的**用量台账文件**（上游实例 data/usage.json 的绝对路径，可空）。
+    # 「今日消耗积分」按 uid 汇总靠它：多分组时每个实例各写一份 usage.json，
+    # 只读默认那份会让分组账号一直显示「—」。空 = 不合并该分组（存量行行为不变）。
+    ('upstreams', 'usage_file', "TEXT NOT NULL DEFAULT ''"),
     # 积分额度与已用量（issue #27）。存量密钥为 0/0 = **不限积分**，行为不变。
     #
     # 为什么要在 token 之外单独记一笔：两者**不成比例** —— 同样 1M token，

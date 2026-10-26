@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import datetime
 import time
+from pathlib import Path
 
 from fastapi import APIRouter, Depends
 
-from .. import db, security
+from .. import db, security, upstreamsvc
 from ..services import wb2api
 
 router = APIRouter(prefix='/api/stats', tags=['stats'])
@@ -455,15 +456,40 @@ def _realm_uids(realm: str | None) -> set[str] | None:
     task_logs 没有 realm 列，收入要按版本筛只能把 uid 映射过去。`kind='credit'`
     的 uid 由 credits.record_balance 写入，是**完整 uid**，所以可以精确匹配，
     不需要像上游日志那样兼容 8 位前缀。
+
+    ★ 2026-10-26 修：**必须覆盖所有分组的 auth_dir**。
+    原来这里只读默认 `auths/`，多分组部署时新分组的账号不在集合里 ⇒ 它们
+    `kind='credit'` 的签到收入在按版本过滤时被整体丢掉。
+    实测对得上：今日真实收入 1216（默认组 800 + 流水分组 416），界面只报 800，
+    差额正是被漏掉的那 4 个账号。这类「少算」比报错更危险——数字看着合理。
     """
     if realm not in ('cn', 'global'):
         return None
+
+    uids: set[str] = set()
+
+    def collect(auth_dir: Path | None = None) -> None:
+        """读一个账号目录，按 realm 收 uid。单个目录失败不影响其他分组。"""
+        try:
+            accounts = wb2api.list_auth_accounts(auth_dir)
+        except Exception:  # noqa: BLE001
+            return
+        for a in accounts:
+            uid = a.get('uid')
+            if uid and (a.get('realm') or 'cn') == realm:
+                uids.add(str(uid))
+
+    # 默认分组（config.AUTH_DIR）
+    collect()
+    # 其余分组各读自己的 auth_dir
     try:
-        accounts = wb2api.list_auth_accounts()
+        for up in upstreamsvc.list_upstreams(include_default=False):
+            ad = up.get('auth_dir')
+            if ad:
+                collect(Path(ad))
     except Exception:  # noqa: BLE001
-        return set()
-    return {str(a.get('uid')) for a in accounts
-            if a.get('uid') and (a.get('realm') or 'cn') == realm}
+        pass
+    return uids
 
 
 def _credit_income_by_day(since: str, realm: str | None) -> dict[str, float]:

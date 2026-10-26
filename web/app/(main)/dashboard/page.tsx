@@ -259,6 +259,24 @@ export default function DashboardPage() {
   /** 多于一个分组时才需要标注统计范围与归属——单分组时界面保持原样 */
   const multiGroup = slices.length > 1;
 
+  /**
+   * 「反代上游」面板当前展示哪个分组（2026-10-26 改造）。
+   *
+   * 改造前是「一个分组一块」纵向排开：两个分组面板高度直接翻倍，而用户当下
+   * 真正关心的往往只是某一个池的实时数字。现在顶部一排可点卡片（分组名 +
+   * 连接状态），下面只渲染选中那一块的详情，高度稳定。
+   *
+   * `null` = 用户还没手动选过 → 落到第一个（默认上游）。
+   */
+  const [activeGid, setActiveGid] = useState<string | null>(null);
+  const activeSlice = useMemo(() => {
+    if (!slices.length) return null;
+    const gid = activeGid;
+    // gid 来自上游配置，类型是 number（默认分组为 null）——统一成字符串再比，
+    // 避免 `1 === '1'` 这种静默不命中。
+    return slices.find((s) => String(s.gid ?? 'default') === gid) ?? slices[0];
+  }, [slices, activeGid]);
+
   /** 实时积分（按 uid），叠加到 accounts 上；上游 /status 的 credits 可能滞后数小时 */
   const liveCredits = useMemo(() => {
     const raw = values.credits?.credits;
@@ -687,19 +705,61 @@ export default function DashboardPage() {
             {t('dashboard.upstreamPanel')}
           </div>
           {slices.length ? (
-            // **一个分组一块**，而不是把各组的数加起来：两个分组可以指向同一套
-            // 上游实例（新建分组时地址默认沿用默认分组的），求和会把同一套实例
-            // 数两遍——那比原来的「只报默认分组」更糟，因为它是错的而不是缺的。
-            // 每组一块、各显示各自的数，两块一样就说明它们指着同一个地方。
+            // 多分组：顶部一排可点卡片切换，下面只渲染选中那一块的详情（2026-10-26）。
+            // 原来是「一个分组一块」纵向排开，两组时面板高度翻倍；而用户当下关心的
+            // 通常只是一个池的数字。单分组时保持原样——没有「切」的必要，硬加一排
+            // 卡片只是多一层噪音。
             <div className="space-y-3">
-              {slices.map((s, i) => (
-                <div
-                  key={s.gid ?? 'default'}
-                  className={cn('space-y-3', i > 0 && multiGroup && 'border-t border-border pt-3')}
-                >
-                  <UpstreamBlock slice={s} realm={realm} showName={multiGroup} />
+              {multiGroup && (
+                <div className="grid grid-cols-2 gap-2">
+                  {slices.map((s) => {
+                    const gid = String(s.gid ?? 'default');
+                    const firstGid = String(slices[0].gid ?? 'default');
+                    const active = (activeGid ?? firstGid) === gid;
+                    // 取不到 upstream 时按异常显示：那一块本来就报不出数
+                    const ok = !!s.upstream?.connected;
+                    return (
+                      <button
+                        key={gid}
+                        type="button"
+                        onClick={() => setActiveGid(gid)}
+                        aria-pressed={active}
+                        className={cn(
+                          'rounded-xl border px-3 py-2 text-left transition-colors',
+                          active
+                            ? 'border-primary/60 bg-primary/5'
+                            : 'border-border hover:bg-background/60',
+                        )}
+                      >
+                        {/* 分组名与状态同一行：两行排版在两张卡片并排时太占高度，
+                            而这里的信息量就只有「谁 · 通没通」两个词 */}
+                        <div className="flex items-baseline justify-between gap-2 text-xs">
+                          <span className="truncate font-medium">{s.name}</span>
+                          <span
+                            className={cn(
+                              'shrink-0 whitespace-nowrap text-[11px]',
+                              ok
+                                ? 'text-emerald-600 dark:text-emerald-400'
+                                : 'text-red-500',
+                            )}
+                          >
+                            {ok ? t('dashboard.connected') : t('dashboard.unavailable')}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
-              ))}
+              )}
+              {activeSlice && (
+                <UpstreamBlock
+                  slice={activeSlice}
+                  realm={realm}
+                  showName={false}
+                  // 多分组时状态已在上方卡片里，详情区不再重复
+                  hideStatus={multiGroup}
+                />
+              )}
             </div>
           ) : (
             <div className="grid h-[160px] place-items-center text-xs text-muted-foreground">{t('dashboard.noUpstreamStatus')}</div>
@@ -894,23 +954,30 @@ export default function DashboardPage() {
 /**
  * 「反代上游」面板里**一个分组**那一块。
  *
- * 单分组时 `showName` 为假，渲染出来与改造前**逐字相同**（连接状态那一行的
- * 标签仍是「连接状态」）；多分组时才把标签换成分组名，让每一块都说得清自己
- * 是哪个池。
+ * 多分组时顶部有分组卡片（自带「● 正常 / ● 不可用」），详情区就不再重复一遍
+ * 连接状态——由调用方按 `multiGroup` 传 `hideStatus`。单分组时没有卡片，
+ * 这一行是唯一的状态出口，必须保留。
  */
 function UpstreamBlock({
-  slice, realm, showName,
-}: {slice: GroupSlice; realm: string; showName: boolean}) {
+  slice, realm, showName, hideStatus = false,
+}: {
+  slice: GroupSlice;
+  realm: string;
+  showName: boolean;
+  hideStatus?: boolean;
+}) {
   const t = useT();
   const up = slice.upstream;
   if (!up) {
     return (
       <>
-        <div className="flex items-center justify-between text-xs">
-          <span className="text-muted-foreground">
-            {showName ? slice.name : t('dashboard.connStatus')}
-          </span>
-        </div>
+        {!hideStatus && (
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">
+              {showName ? slice.name : t('dashboard.connStatus')}
+            </span>
+          </div>
+        )}
         <p className="text-[11px] text-muted-foreground">{t('dashboard.noUpstreamStatus')}</p>
       </>
     );
@@ -928,20 +995,22 @@ function UpstreamBlock({
   ];
   return (
     <>
-      <div className="flex items-center justify-between text-xs">
-        <span className={showName ? 'truncate font-medium' : 'text-muted-foreground'}>
-          {showName ? slice.name : t('dashboard.connStatus')}
-        </span>
-        {up.connected ? (
-          <Badge variant="secondary" className="rounded-full text-emerald-600 dark:text-emerald-400">
-            {t('dashboard.connected')}
-          </Badge>
-        ) : (
-          <Badge variant="destructive" className="rounded-full">
-            {t('dashboard.unavailable')}
-          </Badge>
-        )}
-      </div>
+      {!hideStatus && (
+        <div className="flex items-center justify-between text-xs">
+          <span className={showName ? 'truncate font-medium' : 'text-muted-foreground'}>
+            {showName ? slice.name : t('dashboard.connStatus')}
+          </span>
+          {up.connected ? (
+            <Badge variant="secondary" className="rounded-full text-emerald-600 dark:text-emerald-400">
+              {t('dashboard.connected')}
+            </Badge>
+          ) : (
+            <Badge variant="destructive" className="rounded-full">
+              {t('dashboard.unavailable')}
+            </Badge>
+          )}
+        </div>
+      )}
       {rows.map(([k, v]) => (
         <div key={k} className="flex items-center justify-between text-xs">
           <span className="text-muted-foreground">{k}</span>

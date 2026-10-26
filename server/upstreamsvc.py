@@ -94,6 +94,21 @@ def normalize_container(value: object) -> str:
     return s
 
 
+def normalize_usage_file(value: object) -> str:
+    """分组的用量台账文件路径：空 = 不合并该分组；非空必须是**绝对路径**。
+
+    与 auth_dir 同理——面板进程的 cwd 和上游部署目录无关，相对路径会静默读到
+    别处，最后表现成「分组账号的今日消耗永远是 0」，比报错难查得多。
+    不校验文件是否存在：台账由上游进程创建，面板先配路径、上游后写文件是常态。
+    """
+    s = _clean(value, MAX_PATH)
+    if not s:
+        return ''
+    if not Path(s).is_absolute():
+        raise ValueError(f'用量台账必须是绝对路径（面板按该路径读上游 usage.json）：{s}')
+    return s
+
+
 def _row_to_dict(row) -> dict:
     return {
         'id': int(row['id']),
@@ -104,6 +119,7 @@ def _row_to_dict(row) -> dict:
         'enabled': bool(row['enabled']),
         'auth_dir': str(row['auth_dir'] or ''),
         'container': str(row['container'] or ''),
+        'usage_file': str(row['usage_file'] or ''),
         'created_at': row['created_at'],
         'updated_at': row['updated_at'],
         'is_default': False,
@@ -123,6 +139,8 @@ def default_upstream() -> dict:
         # （改了它只会让面板与上游看到两个目录，属于配置漂移而不是功能）。
         'auth_dir': str(config.AUTH_DIR),
         'container': config.WB2API_CONTAINER,
+        # 默认分组的用量台账：就是 WB2API_USAGE_FILE 指向的那份
+        'usage_file': str(getattr(config, 'WB2API_USAGE_FILE', '') or ''),
         'created_at': None,
         'updated_at': None,
         'is_default': True,
@@ -154,7 +172,8 @@ def list_upstreams(*, include_default: bool = True) -> list[dict]:
 
 def create_upstream(name: object, base_url: object, api_key: object = '',
                     note: object = '', enabled: object = True,
-                    auth_dir: object = '', container: object = '') -> dict:
+                    auth_dir: object = '', container: object = '',
+                    usage_file: object = '') -> dict:
     nm = _clean(name, MAX_NAME)
     if not nm:
         raise ValueError('上游名称不能为空')
@@ -162,10 +181,10 @@ def create_upstream(name: object, base_url: object, api_key: object = '',
     now = int(time.time())
     uid = db.execute(
         'INSERT INTO upstreams(name, base_url, api_key, note, enabled, auth_dir, container, '
-        'created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'usage_file, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         (nm, url, _clean(api_key, MAX_URL), _clean(note, MAX_NOTE),
          1 if enabled else 0, normalize_auth_dir(auth_dir), normalize_container(container),
-         now, now),
+         normalize_usage_file(usage_file), now, now),
     )
     row = db.query_one('SELECT * FROM upstreams WHERE id = ?', (uid,))
     return _row_to_dict(row)
@@ -198,6 +217,8 @@ def update_upstream(upstream_id: object, patch: dict) -> dict | None:
         fields['auth_dir'] = normalize_auth_dir(patch['auth_dir'])
     if 'container' in patch:
         fields['container'] = normalize_container(patch['container'])
+    if 'usage_file' in patch:
+        fields['usage_file'] = normalize_usage_file(patch['usage_file'])
     if fields:
         fields['updated_at'] = int(time.time())
         assignments = ', '.join(f'{k} = ?' for k in fields)
