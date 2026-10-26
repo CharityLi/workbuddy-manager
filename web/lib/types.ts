@@ -1198,39 +1198,32 @@ export interface ChangelogVersion {
 
 /** 上游仓库更新日志（设置 → 更新日志 → 上游）：只记录，不跟随 */
 export interface UpstreamLog {
-  /** 本地记录文件是否存在/可读 */
+  /** 有没有拿到版本列表（缓存为空且联网失败时为 false） */
   available: boolean;
-  /** CHANGELOG-UPSTREAM.md 的绝对路径 */
-  path: string;
   /** owner/repo */
   repo: string;
+  /** 上次巡检/联网失败的原因，空串表示成功 */
+  error: string;
   /** 上次巡检时间（epoch 秒，0 = 从未检查） */
   checked_at: number;
-  /** 上次巡检的错误（网络/限流），空串表示成功 */
-  error: string;
-  /* 远端 main 的 HEAD */
-  remote_sha: string;
-  remote_short: string;
-  remote_subject: string;
-  remote_date: string;
-  /** 远端 HEAD 是否在本地历史之外（true = 上游有本地还没跟上的提交） */
-  remote_newer: boolean | null;
-  /* 本地上游仓库的 HEAD */
-  local_sha: string;
-  local_short: string;
-  local_date: string;
-  local_subject: string;
-  /** 上游二进制的 appVersion */
-  app_version: string;
-  /** 一次巡检看多少条远端提交 */
-  window: number;
+  /** 版本列表的拉取时间（epoch 秒，本地缓存） */
+  fetched_at: number;
+  /** 上游最新版本（tag，形如 v2.10.2） */
+  latest: string;
+  /** 本机当前运行的版本（.version，形如 v2.9.0） */
+  local_version: string;
+  /** 上游是否比本机新（null = 版本号解析不出来） */
+  behind: boolean | null;
+  /** 列表最早列到哪一版 */
+  min_tag: string;
   /** 每天几点巡检（本地时区） */
   watch_hour: number;
   /** 恒为 true：本功能只记录不跟随，界面据此写说明 */
   never_follow: boolean;
+  /** 上次巡检发现的新版本（倒序之前的顺序，正序） */
+  new_tags: string[];
   total: number;
   versions: ChangelogVersion[];
-  truncated: boolean;
 }
 
 export interface Changelog {

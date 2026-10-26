@@ -35,11 +35,14 @@ await new Promise((r) => setTimeout(r, 1200));
 out.upstream = await page.evaluate(() => {
   const text = document.body.innerText;
   return {
-    hasTitle: text.includes('上游仓库更新日志'),
-    hasBehind: text.includes('上游有本地还没跟上的提交') || text.includes('本地已包含上游最新提交'),
+    hasTitle: text.includes('上游仓库发布版本'),
+    hasBehind: text.includes('上游已发布') || text.includes('本机已是最新发布版本'),
     hasNever: text.includes('只记录，不跟随'),
-    hasCommit: text.includes('73a7560e'),
-    hasHeads: text.includes('上游最新') && text.includes('本地上游版本'),
+    hasLatest: text.includes('v2.10.2'),
+    hasLocal: text.includes('v2.9.0'),
+    hasHeads: text.includes('上游最新版本') && text.includes('本机当前版本'),
+    hasListHint: text.includes('v1.0.87') && /32 个发布版本/.test(text),
+    versionBlocks: (text.match(/v\d+\.\d+\.\d+/g) || []).length,
     hScroll: document.documentElement.scrollWidth > document.documentElement.clientWidth,
   };
 });

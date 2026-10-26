@@ -269,6 +269,9 @@ function LocalChangelog() {
   }
 
   const currentVersion = (data.current || '').replace(/^v/i, '');
+  // 这里只放「还没发布」的改动：已经发过的版本在上游那栏（GitHub Releases）里，
+  // 两处都列一遍会出现两份会互相漂移的副本。
+  const unreleased = data.versions.filter((v) => v.unreleased);
 
   return (
     <div className="space-y-3">
@@ -291,7 +294,7 @@ function LocalChangelog() {
       </div>
 
       <div className="scroll-slim max-h-[calc(100dvh-260px)] min-h-[320px] space-y-2 overflow-y-auto pr-1">
-        {data.versions.map((v, i) => (
+        {unreleased.map((v, i) => (
           <VersionBlock
             key={v.version}
             index={i}
@@ -307,6 +310,12 @@ function LocalChangelog() {
         ))}
       </div>
 
+      {!unreleased.length && (
+        <p className="rounded-[20px] bg-muted py-10 text-center text-xs text-muted-foreground">
+          {t('changelog.localEmpty')}
+        </p>
+      )}
+
       {data.truncated && (
         <p className="text-[11px] text-muted-foreground">
           {t('changelog.truncated', {n: data.versions.length, total: data.total ?? 0})}
@@ -317,12 +326,14 @@ function LocalChangelog() {
 }
 
 /**
- * 上游仓库更新日志（只记录，不跟随）。
+ * 上游更新（GitHub Releases）。
  *
- * 与上面的本地面板是两份独立数据：本地这份读 `CHANGELOG.md`（本仓库发布日志），
- * 这份读 `CHANGELOG-UPSTREAM.md`（每日巡检上游追加的流水）。分开显示的目的就是
- * 让「我们自己改了什么」与「上游又动了什么」不会搅在一起，也保证巡检永远不会
- * 写进本地版本的日志里。
+ * 与上面的本地面板分工明确：**本地这栏只放没发布的改动**（`CHANGELOG.md` 的
+ * `[未发布]`），**已经发出去的版本在上游这栏**（`ithtelab/workbuddy-manager` 的
+ * Releases，逐版列出正文）。同一份内容不在两处各存一份，避免漂移。
+ *
+ * 数据来自每日巡检（`services/upstreamwatch`）缓存的 Release 列表，页面打开时
+ * 只读缓存；「立即检查」才联网。
  */
 function UpstreamChangelog() {
   const t = useT();
@@ -334,7 +345,9 @@ function UpstreamChangelog() {
 
   const apply = (d: UpstreamLog) => {
     setData(d);
-    if (d.versions.length) setOpen((cur) => cur ?? d.versions[0].version);
+    // 默认展开本机当前版本那一版：用户最想看的就是「我这版之后多了什么」
+    const mine = d.local_version.replace(/^v/i, '');
+    setOpen((cur) => cur ?? (d.versions.find((v) => v.version === mine)?.version ?? d.versions[0]?.version ?? null));
   };
 
   useEffect(() => {
@@ -375,7 +388,8 @@ function UpstreamChangelog() {
 
   const meta = data;
   const repoUrl = meta?.repo ? `https://github.com/${meta.repo}` : '';
-  const behind = meta?.remote_newer === true;
+  const releasesUrl = meta?.repo ? `https://github.com/${meta.repo}/releases` : '';
+  const localTag = (meta?.local_version || '').replace(/^v/i, '');
 
   return (
     <div className="space-y-3">
@@ -383,16 +397,11 @@ function UpstreamChangelog() {
         <div className="flex items-center gap-2 text-sm font-medium">
           <GitBranch className="h-4 w-4" />
           {t('changelog.upstreamTitle')}
-          {meta?.app_version && (
-            <span className="font-mono text-xs text-muted-foreground">
-              {t('changelog.upstreamAppVersion', {v: meta.app_version})}
-            </span>
-          )}
         </div>
         <div className="flex items-center gap-1.5">
           {repoUrl && (
             <Button asChild variant="ghost" size="sm" className="h-7 gap-1.5 text-xs">
-              <a href={repoUrl} target="_blank" rel="noreferrer">
+              <a href={releasesUrl} target="_blank" rel="noreferrer">
                 <Package className="h-3.5 w-3.5" />
                 {meta?.repo}
               </a>
@@ -424,29 +433,23 @@ function UpstreamChangelog() {
         <div className="grid gap-2 rounded-[16px] border border-border p-3 text-[11px] sm:grid-cols-2">
           <div className="min-w-0 space-y-1">
             <div className="text-muted-foreground">{t('changelog.upstreamRemoteHead')}</div>
-            <div className="truncate font-mono">{meta.remote_short || '—'}</div>
-            <div className="truncate text-muted-foreground" title={meta.remote_subject}>
-              {meta.remote_date} {meta.remote_subject}
-            </div>
+            <div className="truncate font-mono">{meta.latest || '—'}</div>
           </div>
           <div className="min-w-0 space-y-1">
             <div className="text-muted-foreground">{t('changelog.upstreamLocalHead')}</div>
-            <div className="truncate font-mono">{meta.local_short || '—'}</div>
-            <div className="truncate text-muted-foreground" title={meta.local_subject}>
-              {meta.local_date} {meta.local_subject}
-            </div>
+            <div className="truncate font-mono">{meta.local_version || '—'}</div>
           </div>
           <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
-            {meta.remote_newer === null ? null : behind ? (
+            {meta.behind === null ? null : meta.behind ? (
               <Badge
                 variant="outline"
                 className="h-5 border-amber-500/40 bg-amber-500/10 px-1.5 text-[10px] text-amber-600 dark:text-amber-400"
               >
-                {t('changelog.upstreamBehind')}
+                {t('changelog.upstreamBehind', {latest: meta.latest, local: meta.local_version})}
               </Badge>
             ) : (
               <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
-                {t('changelog.upstreamSynced')}
+                {t('changelog.upstreamSynced', {latest: meta.latest, local: meta.local_version})}
               </Badge>
             )}
             <span className="text-muted-foreground">
@@ -461,56 +464,47 @@ function UpstreamChangelog() {
         </div>
       )}
 
-      {(error || meta?.error) && (
-        <div className="flex items-start gap-2.5 rounded-[16px] border border-amber-500/30 bg-amber-500/10 p-3">
-          <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-          <div className="min-w-0 break-words text-[11px] text-muted-foreground">
-            {error || meta?.error}
-          </div>
-        </div>
-      )}
-
-      {!meta?.available || !meta.versions.length ? (
-        <div className="rounded-[20px] bg-muted px-4 py-10 text-center text-xs text-muted-foreground">
-          {t('changelog.upstreamEmpty')}
-        </div>
-      ) : (
-        <div className="scroll-slim max-h-[calc(100dvh-320px)] min-h-[240px] space-y-2 overflow-y-auto pr-1">
-          {meta.versions.map((v, i) => (
-            <VersionBlock
-              key={v.version}
-              index={i}
-              version={v.version}
-              label={v.version}
-              date=""
-              unreleased={v.unreleased}
-              isCurrent={false}
-              currentVersion=""
-              expanded={open === v.version}
-              onToggle={() => setOpen(open === v.version ? null : v.version)}
-              sections={v.sections}
-              showSeeAll={false}
-            />
-          ))}
-        </div>
-      )}
-
-      {meta?.truncated && (
-        <p className="text-[11px] text-muted-foreground">
-          {t('changelog.truncated', {n: meta.versions.length, total: meta.total})}
+      {error && (
+        <p className="flex items-start gap-1.5 rounded-[14px] border border-destructive/40 bg-destructive/5 px-3 py-2 text-[11px] text-destructive">
+          <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span className="min-w-0 break-words">{error}</span>
         </p>
+      )}
+
+      {meta && !meta.available && !error && (
+        <p className="rounded-[20px] bg-muted py-10 text-center text-xs text-muted-foreground">
+          {t('changelog.upstreamEmpty')}
+        </p>
+      )}
+
+      {meta && meta.available && (
+        <>
+          <p className="text-[11px] text-muted-foreground">
+            {t('changelog.upstreamListHint', {min: meta.min_tag, n: meta.total})}
+          </p>
+          <div className="space-y-2">
+            {meta.versions.map((v, i) => (
+              <VersionBlock
+                key={v.version}
+                index={i}
+                version={v.version}
+                date={v.date}
+                unreleased={false}
+                isCurrent={v.version === localTag}
+                currentVersion={localTag}
+                expanded={open === v.version}
+                onToggle={() => setOpen(open === v.version ? null : v.version)}
+                sections={v.sections}
+                showSeeAll={false}
+              />
+            ))}
+          </div>
+        </>
       )}
     </div>
   );
 }
 
-/**
- * 更新日志面板：本地 / 上游两块分开显示。
- *
- * 为什么做成一个 Tab 里的两段而不是两个设置页：设置页的 Tab 数量有测试盯着
- * （8 个，改数要同步路由、路线图与 CHANGELOG），而这两份日志本来就是「同一个
- * 问题的两面」——本地改了什么、上游又动了什么，放在一起看才有意义。
- */
 export function ChangelogPanel() {
   const t = useT();
   const [view, setView] = useState<'local' | 'upstream'>('local');
