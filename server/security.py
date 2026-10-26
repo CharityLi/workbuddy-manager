@@ -16,8 +16,16 @@ from . import config, tokensvc
 from .iputil import client_ip
 
 _fail: dict[str, list] = {}
+# 每个用户名被哪些来源 IP 试错过。用于「按用户名的锁定只拦自己也失败过的 IP」：
+# 否则任何匿名者只要对着 admin 乱试 5 次，就能把管理员锁在门外 10 分钟（匿名锁死）。
+_user_ips: dict[str, set[str]] = {}
 MAX_FAILS = 5
 LOCK_SECONDS = 600
+
+# 用户不存在的分支也要消耗与真实校验同样的时间，否则响应快慢可枚举用户名。
+# 这是一个固定的假哈希（明文不是任何人的密码），只用来喂 pbkdf2。
+DUMMY_PWD_HASH = ('pbkdf2_sha256$260000$00112233445566778899aabbccddeeff$'
+                  'a415f2962893ca33710acc7b0c141746b079ff59a945975c5d27916c855d70af')
 
 
 # ── 密码哈希 ─────────────────────────────────────────────
@@ -454,7 +462,8 @@ def login_blocked(ip: str, username: str | None = None) -> bool:
     if username:
         key = username.lower()
         ucnt, ufirst = _user_fail.get(key, [0, 0.0])
-        if ucnt >= MAX_FAILS and (now - ufirst) < LOCK_SECONDS:
+        if (ucnt >= MAX_FAILS and (now - ufirst) < LOCK_SECONDS
+                and ip in _user_ips.get(key, ())):
             return True
     return False
 
@@ -472,6 +481,7 @@ def record_fail(ip: str, username: str | None = None) -> None:
         if (now - ufirst) >= LOCK_SECONDS:
             ucnt, ufirst = 0, now
         _user_fail[key] = [ucnt + 1, ufirst]
+        _user_ips.setdefault(key, set()).add(ip)
 
     _prune(_fail)
     _prune(_user_fail)
@@ -480,7 +490,9 @@ def record_fail(ip: str, username: str | None = None) -> None:
 def clear_fail(ip: str, username: str | None = None) -> None:
     _fail.pop(ip, None)
     if username:
-        _user_fail.pop(username.lower(), None)
+        key = username.lower()
+        _user_fail.pop(key, None)
+        _user_ips.pop(key, None)
 
 
 # ── 会话吊销 ─────────────────────────────────────────────

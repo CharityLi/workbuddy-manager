@@ -253,8 +253,14 @@ class LoginLockoutTest(unittest.TestCase):
             security.record_fail(f'172.{i // 250}.{i % 250}.9', f'flood{i}')
         self.assertTrue(security.login_blocked('4.4.4.4', 'admin'),
                         '窗口内的 admin 锁定条目被灌入操作挤掉了')
-        self.assertTrue(security.login_blocked('5.5.5.5', 'admin'),
-                        '按用户维度的 admin 锁定同样不该被挤掉')
+        # 2026-10-26：按用户名的锁定改成「只对同样失败过该用户名的来源生效」
+        # （否则匿名者乱试 admin 就能把管理员锁在门外）。跨 IP 不再被锁，
+        # 所以这里直接验证计数器本身没被容量策略挤掉。
+        entry = security._user_fail.get('admin')
+        self.assertIsNotNone(entry, '按用户维度的 admin 计数器被挤掉了')
+        self.assertGreaterEqual(entry[0], security.MAX_FAILS)
+        self.assertIn('4.4.4.4', security._user_ips.get('admin', set()),
+                      '失败来源没被记下，锁定就无法按来源隔离')
 
     def test_successful_login_clears_counter(self) -> None:
         for _ in range(3):

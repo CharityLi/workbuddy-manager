@@ -118,17 +118,23 @@ app = FastAPI(
     openapi_url='/openapi.json' if config.ENABLE_DOCS else None,
 )
 
-if config.CORS_ORIGINS:
-    # 只允许**明确列出的**来源。绝不要把 WB_CORS_ORIGINS 设成 `*`：
-    # 本应用用 Cookie 认证管理端，而 Starlette 在 allow_credentials=True 时
-    # 会把 `*` 回显成请求方 Origin（不是字面 `*`），于是**任意网站**都能带着
-    # 管理员的 Cookie 调 /api/* 并读到响应 —— 等于把控制台交给任何网页。
-    # 留空（默认）即同源部署，安全。
-    if any(o.strip() == '*' for o in config.CORS_ORIGINS):
-        logging.getLogger('workbuddy').error(
-            'WB_CORS_ORIGINS 含 `*` 且已启用凭据：任意网站都能冒用管理员身份读取 '
+def check_cors_origins(origins: list[str]) -> None:
+    """含 `*` 直接拒绝启动 —— 这不是「注意一下」，而是配错了就等于不设防。
+
+    本应用用 Cookie 认证管理端，而 Starlette 在 allow_credentials=True 时会把
+    `*` 回显成请求方 Origin（不是字面 `*`），于是**任意网站**都能带着管理员的
+    Cookie 调 /api/* 并读到响应。只记日志没人看得到，服务照样带着这个洞跑。
+    """
+    if any(str(o).strip() == '*' for o in origins):
+        raise RuntimeError(
+            'WB_CORS_ORIGINS 含 `*` 且启用凭据：任意网站都能冒用管理员身份读取 '
             '/api/*。请改为列出具体来源，或留空（同源部署）。'
         )
+
+
+if config.CORS_ORIGINS:
+    # 只允许**明确列出的**来源。留空（默认）即同源部署，安全。
+    check_cors_origins(config.CORS_ORIGINS)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=config.CORS_ORIGINS,
@@ -151,28 +157,71 @@ MAX_PACKAGE_BODY_BYTES = 64 * 1024 * 1024
 PACKAGE_UPLOAD_PATHS = ('/api/system/update-package',)
 
 
-@app.middleware('http')
-async def limit_api_body(request: Request, call_next):
+def _too_large_response(limit: int) -> JSONResponse:
+    return JSONResponse({'detail': f'请求体过大（上限 {limit // 1024 // 1024} MB）'},
+                        status_code=413)
+
+
+class BodyLimitMiddleware:
     """给 `/api/*` 的请求体加上限（上传升级包那条路放宽，见上面的常量）。
 
-    只看 `Content-Length`：本中间件拦的是「声明了超大长度」这条最容易发起、
-    也最容易自动化的路径（无鉴权即可打 /api/login）。ASGI 在中间件之前不会把
-    body 读进内存，所以先声明后读没有意义；不带该头的分块请求由 uvicorn 自身的
-    缓冲与并发限制兜底。
+    两道闸：
+      1. 声明长度（`Content-Length`）超限直接 413 —— 拦掉最容易自动化的那条路；
+      2. **读取层累计**：统计实际从 ASGI `receive` 读到的字节数，超限就截断并
+         把下游的响应改写为 413。
+
+    为什么必须做在读取层：只查声明长度是绕得过的（分块请求、或不声明长度），
+    而那时 body 已经被完整缓冲进内存 —— 那正是这条中间件要防的事。
+
+    为什么用纯 ASGI 而不是 `@app.middleware('http')`：业务代码会 `try: await
+    request.json()`，在 receive 里抛异常会被它当成「格式错误」吞成 400。所以这里
+    不抛异常，而是置位 over，再在 `send` 处拦截：下游不管返回什么，最终都改写成
+    413 —— 超限的请求体永远走不到业务逻辑的响应里。
     """
-    if request.url.path.startswith('/api/'):
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope.get('type') != 'http' or not scope.get('path', '').startswith('/api/'):
+            await self.app(scope, receive, send)
+            return
+        path = scope['path']
+        limit = (MAX_PACKAGE_BODY_BYTES
+                 if path in PACKAGE_UPLOAD_PATHS else MAX_API_BODY_BYTES)
+        headers = {k.decode('latin-1').lower(): v.decode('latin-1')
+                   for k, v in scope.get('headers', [])}
         try:
-            declared = int(request.headers.get('content-length') or 0)
+            declared = int(headers.get('content-length') or 0)
         except ValueError:
             declared = 0
-        limit = (MAX_PACKAGE_BODY_BYTES
-                 if request.url.path in PACKAGE_UPLOAD_PATHS else MAX_API_BODY_BYTES)
         if declared > limit:
-            return JSONResponse(
-                {'detail': f'请求体过大（上限 {limit // 1024 // 1024} MB）'},
-                status_code=413,
-            )
-    return await call_next(request)
+            await _too_large_response(limit)(scope, receive, send)
+            return
+
+        state = {'received': 0, 'over': False}
+
+        async def limited_receive() -> dict:
+            message = await receive()
+            if message.get('type') == 'http.request':
+                state['received'] += len(message.get('body') or b'')
+                if state['received'] > limit:
+                    state['over'] = True
+                    # 交给下游一个「已结束」的空体，避免它继续等；真正的 413 由下面改写。
+                    return {'type': 'http.request', 'body': b'', 'more_body': False}
+            return message
+
+        async def guarded_send(message: dict) -> None:
+            if state['over']:
+                return  # 丢弃下游响应，收尾时统一改成 413
+            await send(message)
+
+        await self.app(scope, limited_receive, guarded_send)
+        if state['over']:
+            await _too_large_response(limit)(scope, receive, send)
+
+
+app.add_middleware(BodyLimitMiddleware)
 
 # ── 路由注册顺序很重要：先 API / 网关，最后挂静态文件 ──
 app.include_router(auth.router)
