@@ -123,6 +123,18 @@
     @apply border-border outline-ring/50;
   }
 
+  /* 移动端点按时浏览器会铺一层半透明灰块，看着像「闪一下框」。
+     这不是任何组件写的样式，所以在组件里怎么找都找不到。 */
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Radix 打开弹窗会把焦点移到 tabindex="-1" 的内容容器，WebKit 会沿弹窗
+     边缘画一圈 outline。键盘焦点仍走 :focus-visible，不受影响。 */
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
   body {
     @apply bg-background text-foreground;
   }

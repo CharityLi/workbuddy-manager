@@ -161,14 +161,14 @@ function DialogContent({
                   // 会**盖过**调用方传进来的 `max-w-[900px]`（两者不在同一个变体组，
                   // tailwind-merge 认为它们不冲突、都会保留），结果是任何 ≥640px 的屏幕
                   // 上所有弹窗都被压回 512px。历史上 7 个弹窗的宽度覆盖全部因此失效过。
-                  'fixed left-[50%] top-[50%] z-50 grid max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] gap-0 overflow-hidden rounded-[24px] border border-border/60 bg-background shadow-[0_24px_60px_rgba(15,23,42,0.10)] duration-200 dark:border-border/70 dark:bg-background dark:shadow-[0_24px_60px_rgba(0,0,0,0.42)]',
+                  'fixed left-[50%] top-[50%] z-50 grid max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] gap-0 overflow-hidden rounded-[24px] border border-border/60 bg-background shadow-[0_24px_60px_rgba(15,23,42,0.10)] duration-200 dark:border-border/70 dark:bg-background dark:shadow-[0_24px_60px_rgba(0,0,0,0.42)] outline-none focus:outline-none',
                   className,
               )}
               {...props}
             >
               {children}
               {showCloseButton && (
-                <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
+                <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
                   <X className="h-4 w-4" />
                   <span className="sr-only">Close</span>
                 </DialogPrimitive.Close>
