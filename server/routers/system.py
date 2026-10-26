@@ -215,11 +215,11 @@ async def versions(user: dict = Depends(security.current_user)) -> dict:
 
 @router.get('/upstream-log')
 def get_upstream_log(user: dict = Depends(security.current_user)) -> dict:
-    """上游仓库更新日志（**只记录，不跟随**）。
+    """上游发布的版本列表（**只读，不跟随**）。
 
-    与 `/changelog` 是两份东西：那份是本仓库发布的版本日志（CHANGELOG.md），
-    这份是本机每日巡检上游仓库追加的「上游有本地还没有的提交」（
-    CHANGELOG-UPSTREAM.md）。刻意分开，谁都不覆盖谁。
+    与 `/changelog` 分工明确：那份是本机仓库 `CHANGELOG.md`（里面只有还没发布的
+    改动），这份是上游 `ithtelab/workbuddy-manager` 的 Releases（已发布版本，
+    v1.0.87 起逐版列出正文）。数据来自每日巡检的缓存，页面打开不联网。
     """
     return upstreamwatch.load_log()
 
@@ -228,7 +228,8 @@ def get_upstream_log(user: dict = Depends(security.current_user)) -> dict:
 async def check_upstream(user: dict = Depends(security.current_user)) -> dict:
     """立刻巡检一次上游（管理员操作，会打 GitHub API）。
 
-    只写本地日志与状态，**不动上游仓库**：不 fetch、不 pull、不 merge。
+    只读：拉一次 Releases 列表刷新缓存，并更新本地状态；不下载产物、不升级、
+    不改动任何本地文件。
     """
     if user.get('role') != 'admin':
         raise HTTPException(status_code=403, detail='仅管理员可手动巡检上游')

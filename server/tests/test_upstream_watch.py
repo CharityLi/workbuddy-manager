@@ -1,21 +1,21 @@
-"""上游仓库每日巡检（services/upstreamwatch）的回归测试。
+"""上游仓库巡检（services/upstreamwatch）的回归测试。
+
+「上游」= 本项目自己的发布仓库 `ithtelab/workbuddy-manager` 的 Releases。
 
 锁定的不变量：
-  1. **只记录不跟随**：全程没有任何写上游仓库的动作；`check()` 只调用远端只读
-     查询与本地只读 git 查询（测试用 mock 拦住，断言没有调用写入类命令）。
-  2. **不污染本地版本日志**：写入目标是 `CHANGELOG-UPSTREAM.md`，与
-     `CHANGELOG.md` 必须是两个不同文件。
-  3. **首次巡检不倾倒历史**：没有基线时只记远端 HEAD 一条；之后只记「比上次
-     记录更新」的提交，重复巡检不重复写。
-  4. 失败要留痕：网络/限流时报错进状态，不伪装成「没有更新」。
-  5. 「本地有没有」用祖先判定（`merge-base --is-ancestor`），不是「对象存在」。
+  1. **只读**：巡检只请求 GitHub 的 `/releases` 接口，不下载产物、不写仓库文件；
+  2. **版本比较按版本号**，不按字符串（v2.10.2 > v2.9.0，v1.0.87 不被当成「比
+     v2 大」）；
+  3. 只在 `min_tag`（默认 v1.0.87）以上列出版本，更早的不进界面；
+  4. 首次巡检只把最新版记成基线，之后才比「新」；重复巡检不重复报；
+  5. 失败要留痕（状态里带错误），不能伪装成「没有新版本」；
+  6. Release 正文复用本地更新日志的解析器（版本 → 小节 → 条目）。
 """
 from __future__ import annotations
 
 import datetime as dt
 import pathlib
 import sys
-import tempfile
 import unittest
 from unittest import mock
 
@@ -26,250 +26,223 @@ from server import config, db  # noqa: E402
 from server.services import upstreamwatch as uw  # noqa: E402
 
 
-def _commit(sha: str, subject: str = 'x', date: str = '2026-10-21') -> dict:
-    return {'sha': sha, 'short': sha[:8], 'date': date, 'subject': subject,
-            'author': 'linguo2625469'}
+def _rel(tag: str, body: str = '### 修复\n\n- 修好了某处', date: str = '2026-10-20') -> dict:
+    return {'tag_name': tag, 'name': tag, 'published_at': f'{date}T10:00:00Z',
+            'body': body, 'draft': False, 'prerelease': False}
 
 
-class RepoSlugTest(unittest.TestCase):
-    def test_parses_common_url_shapes(self):
-        cases = {
-            'https://github.com/linguo2625469/workbuddy2api-panel.git':
-                'linguo2625469/workbuddy2api-panel',
-            'https://github.com/linguo2625469/workbuddy2api-panel':
-                'linguo2625469/workbuddy2api-panel',
-            'git@github.com:linguo2625469/workbuddy2api-panel.git':
-                'linguo2625469/workbuddy2api-panel',
-            'git@github.com:linguo2625469/workbuddy2api-panel':
-                'linguo2625469/workbuddy2api-panel',
-            'linguo2625469/workbuddy2api-panel':
-                'linguo2625469/workbuddy2api-panel',
-        }
-        for raw, want in cases.items():
-            with self.subTest(raw=raw):
-                self.assertEqual(uw.parse_repo_slug(raw), want)
+class VersionCompareTest(unittest.TestCase):
+    def test_tag_tuple(self):
+        self.assertEqual(uw._tag_tuple('v2.10.2'), (2, 10, 2))
+        self.assertEqual(uw._tag_tuple('1.0.87'), (1, 0, 87))
+        self.assertEqual(uw._tag_tuple(''), ())
 
-    def test_rejects_garbage(self):
-        for raw in ('', '   ', 'not a url', 'https://example.com/x/y'):
-            with self.subTest(raw=raw):
-                self.assertEqual(uw.parse_repo_slug(raw), '')
+    def test_newer_is_numeric_not_lexical(self):
+        self.assertTrue(uw._newer('v2.10.2', 'v2.9.0'))
+        self.assertTrue(uw._newer('v1.0.87', 'v1.0.86'))
+        self.assertFalse(uw._newer('v1.0.87', 'v2.10.2'))
+        self.assertFalse(uw._newer('v2.10.2', 'v2.10.2'))
 
-    def test_env_override_wins(self):
-        with mock.patch.dict('os.environ', {'WB_UPSTREAM_REPO': 'someone/fork'}, clear=False):
-            with mock.patch.object(uw, '_git', return_value='https://github.com/a/b.git'):
-                self.assertEqual(uw.repo_slug(), 'someone/fork')
+    def test_repo_and_min_tag_env_override(self):
+        with mock.patch.dict('os.environ', {'WB_UPSTREAM_REPO': 'a/b',
+                                            'WB_UPSTREAM_MIN_TAG': 'v1.2.3'}, clear=False):
+            self.assertEqual(uw.repo(), 'a/b')
+            self.assertEqual(uw.min_tag(), 'v1.2.3')
+        with mock.patch.dict('os.environ', {}, clear=True):
+            self.assertEqual(uw.repo(), uw.DEFAULT_REPO)
+            self.assertEqual(uw.min_tag(), uw.DEFAULT_MIN_TAG)
 
 
-class NextRunTest(unittest.TestCase):
-    def test_before_hour_is_today(self):
-        now = dt.datetime(2026, 10, 26, 9, 30)
-        with mock.patch.object(uw, 'WATCH_HOUR', 10):
-            self.assertEqual(uw.next_run(now), dt.datetime(2026, 10, 26, 10, 0))
+class FetchTest(unittest.TestCase):
+    def setUp(self):
+        self.calls: list[str] = []
 
-    def test_after_hour_rolls_to_tomorrow(self):
-        now = dt.datetime(2026, 10, 26, 10, 0, 1)
-        with mock.patch.object(uw, 'WATCH_HOUR', 10):
-            self.assertEqual(uw.next_run(now), dt.datetime(2026, 10, 27, 10, 0))
+    def _patch(self, pages: dict[int, list[dict]]):
+        def fake_get(path: str):
+            self.calls.append(path)
+            page = int(path.rsplit('page=', 1)[-1])
+            return pages.get(page, [])
 
-    def test_exactly_on_hour_rolls_forward(self):
-        # 同一时刻不该返回自己（否则循环会在那一刻原地空转）
-        now = dt.datetime(2026, 10, 26, 10, 0, 0)
-        with mock.patch.object(uw, 'WATCH_HOUR', 10):
-            self.assertEqual(uw.next_run(now), dt.datetime(2026, 10, 27, 10, 0))
+        p = mock.patch.object(uw, '_get', side_effect=fake_get)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_stops_at_min_tag(self):
+        self._patch({1: [_rel('v2.10.2'), _rel('v1.0.87'), _rel('v1.0.86')]})
+        out = uw.fetch_releases()
+        self.assertEqual([r['tag'] for r in out], ['v2.10.2', 'v1.0.87'])
+
+    def test_only_releases_endpoint_touched(self):
+        """只读保证：巡检唯一碰的网络路径就是 releases 列表。"""
+        self._patch({1: [_rel('v2.10.2')]})
+        uw.fetch_releases()
+        self.assertTrue(self.calls)
+        for path in self.calls:
+            self.assertTrue(path.startswith('/releases?'), path)
+
+    def test_paginates_until_floor(self):
+        page1 = [_rel(f'v2.{i}.0') for i in range(100, 0, -1)]
+        self._patch({1: page1, 2: [_rel('v1.5.0'), _rel('v1.0.80')]})
+        out = uw.fetch_releases()
+        self.assertEqual(out[-1]['tag'], 'v1.5.0')
+        self.assertEqual(len(self.calls), 2, '到 v1.0.80 就该停，不该翻第三页')
+
+    def test_sorted_desc(self):
+        self._patch({1: [_rel('v1.0.90'), _rel('v2.10.2'), _rel('v2.9.0')]})
+        out = uw.fetch_releases()
+        self.assertEqual([r['tag'] for r in out], ['v2.10.2', 'v2.9.0', 'v1.0.90'])
+
+    def test_drafts_are_skipped(self):
+        draft = _rel('v2.11.0')
+        draft['draft'] = True
+        self._patch({1: [draft, _rel('v2.10.2')]})
+        self.assertEqual([r['tag'] for r in uw.fetch_releases()], ['v2.10.2'])
 
 
 class _Base(unittest.TestCase):
-    """把 DB 与日志文件都指到临时目录（不碰真实 data/ 与仓库根）。"""
+    """把 DB 指到临时目录（不碰真实 data/）。"""
 
     def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        base = pathlib.Path(self._tmp.name)
+        self._tmp = __import__('tempfile').TemporaryDirectory()
         self._orig_db = config.DB_PATH
-        config.DB_PATH = base / 'upstream-watch-test.db'
-        self._orig_log = uw.LOG_PATH
-        uw.LOG_PATH = base / 'CHANGELOG-UPSTREAM.md'
+        config.DB_PATH = pathlib.Path(self._tmp.name) / 'upstream-watch-test.db'
         db.query('SELECT 1')  # 建表/迁移是惰性的：先碰一下库
-        # 每个用例都从干净状态开始
         db.set_setting(uw.STATE_KEY, {})
+        db.set_setting(uw.CACHE_KEY, {})
 
     def tearDown(self):
         config.DB_PATH = self._orig_db
-        uw.LOG_PATH = self._orig_log
         self._tmp.cleanup()
 
-    def setUpPatches(self, commits, local_history=(), local_head=None, slug='o/r'):
-        patches = [
-            mock.patch.object(uw, 'remote_commits', return_value=list(commits)),
-            mock.patch.object(uw, 'in_local_history',
-                              side_effect=lambda shas: {s for s in shas if s in set(local_history)}),
-            mock.patch.object(uw, 'repo_slug', return_value=slug),
-            mock.patch.object(uw, 'local_head',
-                              return_value=local_head or {'sha': 'f' * 40, 'short': 'ffffffff',
-                                                          'date': '2026-10-26',
-                                                          'subject': 'local work'}),
-        ]
-        for p in patches:
-            p.start()
-            self.addCleanup(p.stop)
 
+class CacheTest(_Base):
+    def test_uses_cache_when_fresh(self):
+        with mock.patch.object(uw, 'fetch_releases', return_value=[{'tag': 'v2.10.2',
+                                                                   'name': 'v2.10.2',
+                                                                   'date': '2026-10-26',
+                                                                   'body': ''}]) as f:
+            uw.cached_releases(force=True)
+            self.assertEqual(f.call_count, 1)
+            releases, _ = uw.cached_releases()
+            self.assertEqual(f.call_count, 1, '缓存新鲜时不该再联网')
+            self.assertEqual(releases[0]['tag'], 'v2.10.2')
 
-class AppendTest(_Base):
-    def test_header_written_once_and_blocks_append(self):
-        self.assertTrue(uw._append_block([_commit('a' * 40, 'first')], 'a' * 40))
-        self.assertTrue(uw._append_block([_commit('b' * 40, 'second')], 'b' * 40))
-        text = uw.LOG_PATH.read_text(encoding='utf-8')
-        self.assertEqual(text.count('# 上游仓库更新日志'), 1)
-        self.assertEqual(text.count('## [上游'), 2)
-        self.assertIn('aaaaaaaa', text)
-        self.assertIn('bbbbbbbb', text)
+    def test_force_refetches(self):
+        with mock.patch.object(uw, 'fetch_releases', return_value=[]) as f:
+            uw.cached_releases(force=True)
+            uw.cached_releases(force=True)
+            self.assertEqual(f.call_count, 2)
 
-    def test_empty_batch_writes_nothing(self):
-        self.assertFalse(uw._append_block([], 'a' * 40))
-        self.assertFalse(uw.LOG_PATH.exists())
-
-    def test_logged_shas_reads_back(self):
-        uw._append_block([_commit('c' * 40, 'x')], 'c' * 40)
-        self.assertIn('cccccccc', uw._logged_shas())
-
-    def test_log_is_not_the_local_changelog(self):
-        """这条是整个功能的分界线：本地版本日志与上游流水必须是两个文件。"""
-        self.assertNotEqual(uw.LOG_PATH.name, 'CHANGELOG.md')
-        self.assertEqual(uw.LOG_PATH.name, 'CHANGELOG-UPSTREAM.md')
+    def test_repo_change_invalidates_cache(self):
+        with mock.patch.object(uw, 'fetch_releases', return_value=[]) as f:
+            uw.cached_releases(force=True)
+            with mock.patch.dict('os.environ', {'WB_UPSTREAM_REPO': 'other/repo'}, clear=False):
+                uw.cached_releases()
+            self.assertEqual(f.call_count, 2, '换了仓库还拿旧缓存会显示错版本')
 
 
 class CheckTest(_Base):
-    def test_first_run_records_only_head(self):
-        commits = [_commit('a' * 40, 'newest'), _commit('b' * 40, 'older'),
-                   _commit('c' * 40, 'oldest')]
-        self.setUpPatches(commits)
-        out = uw.check(force=True)
+    def test_first_run_sets_baseline_only(self):
+        rels = [{'tag': 'v2.10.2', 'name': 'v2.10.2', 'date': '2026-10-26', 'body': ''},
+                {'tag': 'v2.10.1', 'name': 'v2.10.1', 'date': '2026-10-26', 'body': ''}]
+        with mock.patch.object(uw, 'fetch_releases', return_value=rels):
+            out = uw.check(force=True)
         self.assertTrue(out['ok'])
         self.assertTrue(out['baseline'])
-        self.assertEqual(out['new'], 1, '首次巡检只记远端 HEAD，不能把历史倒进来')
-        self.assertTrue(out['remote_newer'])
-        text = uw.LOG_PATH.read_text(encoding='utf-8')
-        self.assertIn('aaaaaaaa', text)
-        self.assertNotIn('bbbbbbbb', text)
+        self.assertEqual(out['new_tags'], ['v2.10.2'], '首次只记最新一版')
+        self.assertEqual(uw.state()['latest_tag'], 'v2.10.2')
 
-    def test_second_run_within_ttl_skips(self):
-        self.setUpPatches([_commit('a' * 40, 'newest')])
-        uw.check(force=True)
-        out = uw.check()
-        self.assertTrue(out['skipped'])
-        self.assertEqual(out['new'], 0)
-
-    def test_incremental_only_logs_newer_commits(self):
-        base = [_commit('a' * 40, 'base')]
-        self.setUpPatches(base)
-        uw.check(force=True)
-        # 上游又推了两条：d、e（e 最新）
-        newer = [_commit('e' * 40, 'newest'), _commit('d' * 40, 'new'),
-                 _commit('a' * 40, 'base')]
-        with mock.patch.object(uw, 'remote_commits', return_value=newer):
+    def test_new_release_detected(self):
+        with mock.patch.object(uw, 'fetch_releases',
+                               return_value=[{'tag': 'v2.10.2', 'name': 'v2.10.2',
+                                              'date': '2026-10-26', 'body': ''}]):
+            uw.check(force=True)
+        rels = [{'tag': 'v2.11.0', 'name': 'v2.11.0', 'date': '2026-10-27', 'body': ''},
+                {'tag': 'v2.10.2', 'name': 'v2.10.2', 'date': '2026-10-26', 'body': ''}]
+        with mock.patch.object(uw, 'fetch_releases', return_value=rels):
             out = uw.check(force=True)
-        self.assertEqual(out['new'], 2)
-        text = uw.LOG_PATH.read_text(encoding='utf-8')
-        self.assertIn('eeeeeeee', text)
-        self.assertIn('dddddddd', text)
-        self.assertEqual(text.count('aaaaaaaa'), 1, '基线那条不该重复写')
+        self.assertFalse(out['baseline'])
+        self.assertEqual(out['new_tags'], ['v2.11.0'])
+        self.assertEqual(uw.state()['latest_tag'], 'v2.11.0')
 
-    def test_unchanged_upstream_writes_nothing(self):
-        commits = [_commit('a' * 40, 'base')]
-        self.setUpPatches(commits)
-        uw.check(force=True)
-        before = uw.LOG_PATH.read_text(encoding='utf-8')
-        out = uw.check(force=True)
-        self.assertEqual(out['new'], 0)
-        self.assertEqual(uw.LOG_PATH.read_text(encoding='utf-8'), before)
+    def test_no_change_reports_nothing(self):
+        rels = [{'tag': 'v2.10.2', 'name': 'v2.10.2', 'date': '2026-10-26', 'body': ''}]
+        with mock.patch.object(uw, 'fetch_releases', return_value=rels):
+            uw.check(force=True)
+            out = uw.check(force=True)
+        self.assertEqual(out['new_tags'], [])
 
-    def test_commits_already_in_local_history_are_not_logged(self):
-        commits = [_commit('a' * 40, 'x'), _commit('b' * 40, 'y')]
-        self.setUpPatches(commits, local_history=['a' * 40, 'b' * 40])
-        out = uw.check(force=True)
-        self.assertEqual(out['new'], 0)
-        self.assertFalse(uw.LOG_PATH.exists())
-        self.assertFalse(out['remote_newer'], '远端 HEAD 已在本地历史里 ⇒ 不算落后')
+    def test_ttl_skips_without_network(self):
+        with mock.patch.object(uw, 'fetch_releases',
+                               return_value=[{'tag': 'v2.10.2', 'name': 'v2.10.2',
+                                              'date': '2026-10-26', 'body': ''}]):
+            uw.check(force=True)
+        with mock.patch.object(uw, 'fetch_releases') as f:
+            out = uw.check()
+            self.assertTrue(out['skipped'])
+            self.assertEqual(f.call_count, 0)
 
-    def test_failure_is_recorded_not_swallowed(self):
-        with mock.patch.object(uw, 'remote_commits', side_effect=RuntimeError('限流')):
-            with mock.patch.object(uw, 'repo_slug', return_value='o/r'):
-                with mock.patch.object(uw, 'local_head', return_value={}):
-                    with mock.patch.object(uw, 'remote_head_sha', return_value=''):
-                        out = uw.check(force=True)
+    def test_failure_is_recorded(self):
+        with mock.patch.object(uw, 'fetch_releases', side_effect=RuntimeError('限流')):
+            out = uw.check(force=True)
         self.assertFalse(out['ok'])
         self.assertIn('限流', out['error'])
-        self.assertFalse(uw.LOG_PATH.exists())
-        st = uw.state()
-        self.assertIn('限流', st['error'])
-        self.assertTrue(st['checked_at'])
+        self.assertIn('限流', uw.state()['error'])
+        self.assertTrue(uw.state()['checked_at'])
 
-    def test_state_carries_both_heads(self):
-        self.setUpPatches([_commit('a' * 40, 'newest')])
-        uw.check(force=True)
-        st = uw.state()
-        self.assertEqual(st['remote_sha'], 'a' * 40)
-        self.assertEqual(st['local_sha'], 'f' * 40)
-        self.assertEqual(st['repo'], 'o/r')
 
-    def test_check_never_writes_to_upstream_repo(self):
-        """只读保证：巡检期间不允许出现 git 写命令（fetch/pull/merge/checkout）。"""
-        calls: list[list[str]] = []
+class VersionsTest(unittest.TestCase):
+    def test_body_becomes_sections(self):
+        rels = [{'tag': 'v2.10.2', 'name': 'v2.10.2', 'date': '2026-10-26',
+                 'body': '### 修复\n\n- 修好了甲\n- 修好了乙\n\n### 新增\n\n- 加了个功能'}]
+        v = uw.versions_from_releases(rels)[0]
+        self.assertEqual(v['version'], '2.10.2')
+        self.assertEqual(v['date'], '2026-10-26')
+        self.assertFalse(v['unreleased'])
+        titles = [s['title'] for s in v['sections']]
+        self.assertEqual(titles, ['修复', '新增'])
+        self.assertEqual(len(v['sections'][0]['items']), 2)
+        self.assertIn('修好了甲', v['sections'][0]['items'][0]['text'])
 
-        def fake_git(args, timeout=6):
-            calls.append(list(args))
-            return None
-
-        self.setUpPatches([_commit('a' * 40, 'newest')])
-        with mock.patch.object(uw, '_git', side_effect=fake_git):
-            uw.check(force=True)
-        forbidden = {'fetch', 'pull', 'merge', 'checkout', 'reset', 'clean', 'rebase'}
-        for args in calls:
-            self.assertFalse(forbidden & set(args), f'出现了写操作：{args}')
+    def test_empty_body_yields_empty_sections(self):
+        v = uw.versions_from_releases([{'tag': 'v1.0.87', 'name': 'v1.0.87',
+                                        'date': '2026-10-14', 'body': ''}])[0]
+        self.assertEqual(v['version'], '1.0.87')
+        self.assertEqual(v['sections'], [])
 
 
 class LoadLogTest(_Base):
-    def test_unavailable_without_file(self):
-        out = uw.load_log()
-        self.assertFalse(out['available'])
-        self.assertEqual(out['versions'], [])
-        self.assertTrue(out['never_follow'])
-        self.assertEqual(out['watch_hour'], uw.WATCH_HOUR)
-
-    def test_reports_versions_and_meta(self):
-        self.setUpPatches([_commit('a' * 40, 'docs: 停止维护声明')])
-        uw.check(force=True)
-        out = uw.load_log()
+    def test_reports_meta_and_versions(self):
+        rels = [{'tag': 'v2.10.2', 'name': 'v2.10.2', 'date': '2026-10-26',
+                 'body': '### 修复\n\n- 某处'}]
+        with mock.patch.object(uw, 'fetch_releases', return_value=rels):
+            uw.check(force=True)
+            out = uw.load_log()
         self.assertTrue(out['available'])
-        self.assertEqual(out['repo'], 'o/r')
-        self.assertEqual(out['remote_short'], 'aaaaaaaa')
-        self.assertEqual(out['local_short'], 'ffffffff')
-        self.assertTrue(out['versions'])
-        self.assertTrue(out['versions'][0]['version'].startswith('上游'))
-        self.assertEqual(out['versions'][0]['sections'][0]['title'], '上游提交')
+        self.assertEqual(out['repo'], uw.DEFAULT_REPO)
+        self.assertEqual(out['latest'], 'v2.10.2')
+        self.assertTrue(out['never_follow'])
+        self.assertEqual(out['versions'][0]['version'], '2.10.2')
+        self.assertIn('behind', out, '要能告诉界面本机落后于上游')
 
-    def test_parse_shares_format_with_local_changelog(self):
-        """与 CHANGELOG.md 同一套解析：版本 → 小节 → 条目。"""
-        uw._append_block([_commit('a' * 40, 'feat: 某功能')], 'a' * 40)
-        v = uw.load_log()['versions'][0]
-        self.assertTrue(v['date'])
-        self.assertEqual(len(v['sections'][0]['items']), 1)
-        self.assertIn('某功能', v['sections'][0]['items'][0]['text'])
+    def test_local_version_read_from_dot_version(self):
+        with mock.patch.object(config, 'ROOT', pathlib.Path('/nonexistent-root')):
+            self.assertEqual(uw.local_version(), '')
+
+    def test_network_failure_surfaces_error(self):
+        with mock.patch.object(uw, 'fetch_releases', side_effect=RuntimeError('offline')):
+            out = uw.load_log()
+        self.assertFalse(out['available'])
+        self.assertIn('offline', out['error'])
 
 
-class AppVersionTest(unittest.TestCase):
-    def test_reads_app_version_from_go_source(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            root = pathlib.Path(tmp)
-            (root / 'cmd' / 'server').mkdir(parents=True)
-            (root / 'cmd' / 'server' / 'main.go').write_text(
-                'package main\n\nconst appVersion = "1.13.0-panel"\n', encoding='utf-8')
-            with mock.patch.object(config, 'UPSTREAM_DIR', root):
-                self.assertEqual(uw.app_version(), '1.13.0-panel')
-
-    def test_missing_source_returns_empty(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            with mock.patch.object(config, 'UPSTREAM_DIR', pathlib.Path(tmp)):
-                self.assertEqual(uw.app_version(), '')
+class ScheduleTest(unittest.TestCase):
+    def test_next_run_before_and_after_hour(self):
+        with mock.patch.object(uw, 'WATCH_HOUR', 10):
+            early = dt.datetime(2026, 10, 26, 9, 30)
+            late = dt.datetime(2026, 10, 26, 10, 0, 1)
+            self.assertEqual(uw.next_run(early), dt.datetime(2026, 10, 26, 10, 0))
+            self.assertEqual(uw.next_run(late), dt.datetime(2026, 10, 27, 10, 0))
 
 
 if __name__ == '__main__':
