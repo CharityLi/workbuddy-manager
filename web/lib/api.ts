@@ -133,7 +133,9 @@ http.interceptors.response.use(
       // 路径必须带 basePath：basePath 只自动作用于 next/router 的跳转，裸的
       // window.location.href 会跳到域名根（通常 404）—— 登录页与公开页都一样。
       const loginPath = `${BASE_PATH}/login`;
-      const publicPaths = [loginPath, `${BASE_PATH}/claim`];
+      // `route` 是移动端自动选路页：必须在未登录状态下可打开，否则
+      // 「书签存旧地址 → 打开后自动切到更快入口」一进页面就被踢去登录页。
+      const publicPaths = [loginPath, `${BASE_PATH}/claim`, `${BASE_PATH}/route`];
       // 根路径只是「跳到 /dashboard」的中转页，不在这里拦（否则首次访问者
       // 会先被重定向到登录页并显示「会话已过期」）。
       const isRoot = path === BASE_PATH || path === `${BASE_PATH}/`;
