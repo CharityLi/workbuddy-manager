@@ -602,12 +602,24 @@ def _map_model(model: str | None) -> str | None:
     return modelmap.target_for(db.get_setting('model_map', {}) or {}, model)
 
 
-def _upstream_headers(upstream: dict | None = None) -> dict:
+def _upstream_headers(upstream: dict | None = None, client_ua: str = '') -> dict:
     """转发时用的请求头；`upstream` 为空 = 默认上游。
 
     多上游（密钥绑定上游）之后，请求头**必须按密钥解析出来的上游来构造** ——
     拿错上游的 api_key 会打到别的账号池上，而这正是本功能要隔离的东西。
     默认参数只为兼容「没有密钥」的调用方（探活 / 管理端调试台）。
+
+    `client_ua`：透传下游客户端的 User-Agent（2026-10-25 新增）。
+
+    为什么必须透传：上游 wb2api 开了 `auto_client_version` 后，会从**入站** UA
+    里学习真实客户端版本，用于让出站请求（伪装成官方 WorkBuddy 客户端）的版本段
+    跟着客户端升级自动走。如果这里不透传，上游只能看到 httpx 自己的
+    `python-httpx/x.y`，学习永远不会触发，出站版本永久卡在 config 或内置默认值。
+    实测确认过这一点：不透传时 /v1/chat/completions 一切正常，只是上游日志里
+    始终没有学习记录。
+
+    安全边界：UA 是客户端完全可控字段，透传后由上游做约束（严格正则 /
+    只增不减 / 仅接受带凭据请求）。这里只做长度截断，不解析内容。
     """
     up = upstream if upstream is not None else upstreamsvc.default_upstream()
     headers = {'Content-Type': 'application/json'}
@@ -617,6 +629,8 @@ def _upstream_headers(upstream: dict | None = None) -> dict:
     api_key = upstreamsvc.forward_api_key(up)
     if api_key:
         headers['Authorization'] = f'Bearer {api_key}'
+    if client_ua:
+        headers['User-Agent'] = client_ua[:256]
     return headers
 
 
@@ -1078,7 +1092,7 @@ async def _chat(request: Request, upstream_path: str):
     if not stream:
         try:
             async with config.http_client(config.UPSTREAM_TIMEOUT, connect=5) as client:
-                resp = await client.post(url, json=body, headers=_upstream_headers(upstream))
+                resp = await client.post(url, json=body, headers=_upstream_headers(upstream, client_ua=ua or ''))
             latency = int((time.time() - started) * 1000)
             usage = {}
             try:
@@ -1104,7 +1118,7 @@ async def _chat(request: Request, upstream_path: str):
     # 流式转发
     client = config.http_client(config.UPSTREAM_TIMEOUT, connect=5)
     try:
-        req = client.build_request('POST', url, json=body, headers=_upstream_headers(upstream))
+        req = client.build_request('POST', url, json=body, headers=_upstream_headers(upstream, client_ua=ua or ''))
         resp = await client.send(req, stream=True)
     except Exception as exc:  # noqa: BLE001
         await client.aclose()
