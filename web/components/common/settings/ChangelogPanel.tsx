@@ -236,7 +236,8 @@ function LocalChangelog({data, error}: {data: Changelog | null; error: string}) 
   const [open, setOpen] = useState<string | null>(null);
 
   // 「未发布」那一版默认展开：本地这栏通常只有这一版
-  const unreleasedVersion = (data?.versions || []).find((v) => v.unreleased)?.version ?? null;
+  const unreleasedVersion = (data?.versions || []).find((v) => v.unreleased)?.version
+    ?? (data?.versions || [])[0]?.version ?? null;
   useEffect(() => {
     if (unreleasedVersion) setOpen((cur) => cur ?? unreleasedVersion);
   }, [unreleasedVersion]);
@@ -259,7 +260,7 @@ function LocalChangelog({data, error}: {data: Changelog | null; error: string}) 
   const currentVersion = (data.current || '').replace(/^v/i, '');
   // 这里只放「还没发布」的改动：已经发过的版本在上游那栏（GitHub Releases）里，
   // 两处都列一遍会出现两份会互相漂移的副本。
-  const unreleased = data.versions.filter((v) => v.unreleased);
+  const localVersions = data.versions;
 
   return (
     <div className="space-y-3">
@@ -282,7 +283,7 @@ function LocalChangelog({data, error}: {data: Changelog | null; error: string}) 
       </div>
 
       <div className="scroll-slim max-h-[calc(100dvh-260px)] min-h-[320px] space-y-2 overflow-y-auto pr-1">
-        {unreleased.map((v, i) => (
+        {localVersions.map((v, i) => (
           <VersionBlock
             key={v.version}
             index={i}
@@ -298,7 +299,7 @@ function LocalChangelog({data, error}: {data: Changelog | null; error: string}) 
         ))}
       </div>
 
-      {!unreleased.length && (
+      {!localVersions.length && (
         <p className="rounded-[20px] bg-muted py-10 text-center text-xs text-muted-foreground">
           {t('changelog.localEmpty')}
         </p>
