@@ -8,7 +8,7 @@ import {notify} from '@/lib/toast';
 import {keyApi, upstreamsApi, errText} from '@/lib/api';
 import {BASE_PATH} from '@/lib/base-path';
 import type {ApiKey, KeyImportResult, KeyImportStatus, UpstreamEndpoint} from '@/lib/types';
-import {fmtDateTime, fmtNumber} from '@/lib/format';
+import {fmtDateTime, fmtNumber, fmtTokenCompact} from '@/lib/format';
 import {PageHeader} from '@/components/common/layout/PageHeader';
 import {PageSectionTabs} from '@/components/common/layout/PageSectionTabs';
 import {EmptyState} from '@/components/common/layout/EmptyState';
@@ -672,9 +672,14 @@ export default function KeysPage() {
                           : 'text-muted-foreground';
                       return (
                         <span className="flex flex-col">
-                          <span className={tone}>
-                            {fmtNumber(k.used_tokens)}
-                            {k.quota ? ` / ${fmtNumber(k.quota)}` : ''}
+                          {/* 大数字带单位（1.2万 / 3.4亿）：精确值放到 title 里，
+                              想看逐位数字悬停即可，表格列宽也不会被 7 位数撑开 */}
+                          <span
+                            className={tone}
+                            title={`${fmtNumber(k.used_tokens)}${k.quota ? ` / ${fmtNumber(k.quota)}` : ''}`}
+                          >
+                            {fmtTokenCompact(k.used_tokens)}
+                            {k.quota ? ` / ${fmtTokenCompact(k.quota)}` : ''}
                           </span>
                           {!!k.quota_credit && (
                             <span
