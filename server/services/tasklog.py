@@ -44,7 +44,7 @@ _UID_SHAPE = re.compile(r'^[0-9A-Za-z_-]{6,64}$')
 #
 # 解析出的 uid 一律**归一化回 uid8**（见 `_normalize_uid`）：界面按 uid 聚合
 # 「某账号 N 条记录」，若直接拿 `昵称(uid8)` 当 uid，同一个号会因昵称变化而分裂成
-# 好几个不存在的账号。昵称本身由 `routers/accounts.py` 的 `_nickname_resolver`
+# 好几个不存在的账号。昵称本身由 `routers/accounts.py` 的 `_account_resolver`
 # 从账号表查，不依赖日志里的这一份。
 _LABEL_SHAPE = re.compile(r'^(.{1,64}?)\(([0-9A-Za-z_-]{6,64})\)$')
 

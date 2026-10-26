@@ -18,7 +18,15 @@ export interface Account {
   issued_at?: number | null;
   file: string;
   uid: string;
+  /**
+   * 显示名：**备注优先、昵称兜底**（服务端出口统一覆盖，见
+   * server/services/displayname.py）。想拿上游原名用 `nickname_raw`。
+   */
   nickname: string;
+  /** 上游起的昵称（未被备注覆盖）。账号页主名称显示它 */
+  nickname_raw?: string;
+  /** 同上，兼容旧字段名（服务端还会带一份） */
+  display_name_raw?: string;
   enterprise_id: string;
   expires_at: number;
   is_expired: boolean;
@@ -241,7 +249,10 @@ export interface ProxyRoute {
 export interface RouteAccount {
   file: string;
   uid: string;
+  /** 显示名（备注优先）；原名见 nickname_raw */
   nickname: string;
+  nickname_raw?: string;
+  note?: string;
   /** 绑定的线路名；空 = 跟随池策略 */
   proxy: string;
 }
@@ -935,7 +946,10 @@ export interface CheckinLog {
   id: number;
   ts: number;
   uid: string;
+  /** 显示名（备注优先）；原名见 nickname_raw */
   nickname: string;
+  nickname_raw?: string;
+  note?: string;
   /** 触发来源：manual 手动 / manual-batch 批量 / add 添加账号 / auto 上游自动 */
   source: string;
   /** 类型：checkin 签到 / keepalive 保活 */
@@ -961,8 +975,11 @@ export interface TaskLog {
   message: string;
   /** 中文展示文案 */
   message_cn?: string;
-  /** 账号昵称（后端按 uid/前缀解析；上游日志只带 uid 前 8 位） */
+  /** 账号显示名（备注优先；没备注才是按 uid/前缀解析出的上游昵称） */
   nickname?: string;
+  /** 上游昵称（未被备注覆盖） */
+  nickname_raw?: string;
+  note?: string;
 }
 
 export interface TaskLogResponse {

@@ -1206,7 +1206,7 @@ export default function AccountsPage() {
           (a.is_expired ? 'bg-muted-foreground/20 text-muted-foreground' : 'bg-primary text-primary-foreground')
         }
       >
-        {(a.nickname || '?').charAt(0)}
+        {(a.nickname_raw || a.nickname || '?').charAt(0)}
       </div>
     );
   }
@@ -1534,8 +1534,11 @@ export default function AccountsPage() {
                       className={
                         'truncate text-sm font-medium ' + (a.is_expired ? 'text-muted-foreground' : '')
                       }
+                      title={a.nickname_raw || a.nickname}
                     >
-                      {a.nickname || t('accounts.unnamed')}
+                      {/* 账号页主行放**上游昵称**（和上游后台对得上），备注进第二行；
+                          别处显示账号一律「备注优先」，见 services/displayname */}
+                      {a.nickname_raw || a.nickname || t('accounts.unnamed')}
                     </div>
                     <div className="truncate font-mono text-[11px] text-muted-foreground">{a.uid}</div>
                     {a.note ? (
@@ -1608,8 +1611,12 @@ export default function AccountsPage() {
                   <div className="flex items-center gap-2.5">
                     {renderAvatar(a)}
                     <div className="min-w-0">
-                      <div className={'truncate text-sm font-medium ' + (a.is_expired ? 'text-muted-foreground' : '')}>
-                        {a.nickname || t('accounts.unnamed')}
+                      <div
+                        className={'truncate text-sm font-medium ' + (a.is_expired ? 'text-muted-foreground' : '')}
+                        title={a.nickname_raw || a.nickname}
+                      >
+                        {/* 主行=上游昵称，第二行=备注（账号页是唯一以昵称为主的地方） */}
+                        {a.nickname_raw || a.nickname || t('accounts.unnamed')}
                       </div>
                       {a.note ? (
                         <div className="truncate text-[11px] text-muted-foreground" title={a.note}>
