@@ -87,6 +87,15 @@
 
 ### 修复
 
+- **配套网关（wb2api）本轮同步修了 5 处**：
+  ① 上游返回 200 却是空流时，错误文案带上 `stream ended before completion`，
+  客户端才会按断流重试；② tool 参数 schema 里 `enum` 没写 `type` 的节点按值补上
+  `string/integer/number`（Kimi 系会因此 503）；③ 图片写法归一补上 `input_image`
+  与 Anthropic 的 `source.base64`；④ 大请求体支持 gzip，但**默认关闭**，需要时用
+  `WB_UPSTREAM_GZIP=1` 打开；⑤ chat 路径的 session dead 从「一次即禁用」改为
+  **连续多次才禁用**——之前 13 个 disabled 号的 refresh 全部成功，就是被一次误判
+  杀掉的。
+
 - **批量签到遇到「10001 签到失败，请稍后重试」会重试，并把失败数报出来**：
   这条以前会被当成「今日已签到」记成成功，用户以为签上了其实没有。现在按
   5 秒 / 15 秒 / 60 秒退避重试，仍失败就在结果里写明「N 个失败」。
