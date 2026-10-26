@@ -34,7 +34,7 @@ import asyncio
 import logging
 import time
 
-from .. import db
+from .. import db, upstreamsvc
 from . import taskrun
 
 logger = logging.getLogger(__name__)
@@ -144,7 +144,39 @@ def mark_ran(task: str, now: int | None = None) -> dict:
 
 
 async def run_task(task: str) -> tuple[bool, str]:
-    """执行一次任务，返回 `(是否触发成功, 说明)`。
+    """**遍历所有分组**各跑一遍同一个任务，汇总成一行的成败与说明。
+
+    为什么要遍历：分组是独立的上游实例、独立的账号目录，签到和补偿都必须
+    各自打各自的上游。只跑默认分组会让「另一个分组的账号今天没签」这件事
+    完全静默——用户看不到任何异常。
+
+    `claim` / `full` 两种走的是 taskrun（它目前只认默认上游的账号目录），
+    多分组时在文案里点明，避免把「只跑了一个分组」当成「全都跑过了」。
+    """
+    if task not in _TASKS:
+        raise ValueError(f'未知任务：{task}')
+
+    ups = upstreamsvc.list_upstreams()
+    parts: list[str] = []
+    failed_any = False
+    for up in ups:
+        upstream_id = up.get('id')
+        label = str(up.get('name') or '默认上游')
+        try:
+            ok, msg = await _run_one(task, upstream_id)
+        except Exception as exc:  # noqa: BLE001
+            ok, msg = False, f'异常：{exc}'
+        if not ok:
+            failed_any = True
+        parts.append(f'{label}: {msg}')
+
+    if task in ('claim', 'full') and len(ups) > 1:
+        parts.append('（领奖任务当前只覆盖默认上游）')
+    return not failed_any, '；'.join(parts)
+
+
+async def _run_one(task: str, upstream_id: int | None) -> tuple[bool, str]:
+    """在**单个分组**上执行一次任务，返回 `(是否触发成功, 说明)`。
 
     `taskrun` 一次只允许一个任务在跑：claim / full 若撞上正在执行的任务会返回
     False（如实转达，不假装成功）。
@@ -156,7 +188,7 @@ async def run_task(task: str) -> tuple[bool, str]:
         # import accounts 会成环。同理这里的 `user` 只是路由的函数签名要求，
         # 函数体不用它（依赖注入由框架负责，后台任务直接给个管理员身份）。
         from ..routers import accounts as accounts_router  # noqa: PLC0415
-        out = await accounts_router.checkin_all(upstream_id=None,
+        out = await accounts_router.checkin_all(upstream_id=upstream_id,
                                                 user={'role': 'admin'})
         total = out.get('total', 0)
         ok_n = out.get('succeeded', 0)
@@ -171,7 +203,7 @@ async def run_task(task: str) -> tuple[bool, str]:
         return not failed, msg
     if task == 'compensation':
         from ..routers import accounts as accounts_router  # noqa: PLC0415
-        out = await accounts_router.claim_compensation_all(upstream_id=None,
+        out = await accounts_router.claim_compensation_all(upstream_id=upstream_id,
                                                            user={'role': 'admin'})
         parts = []
         if out.get('claimed'):
