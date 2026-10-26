@@ -605,6 +605,7 @@ export function ManagementBar() {
   const MORE_ENTRIES: Array<{href: string; label?: string} | {profile: true}> = [
     {href: '/models'},
     {href: '/logs'},
+    {href: '/watch', label: t('nav.watch')},
     {href: '/security'},
     {profile: true},
   ];

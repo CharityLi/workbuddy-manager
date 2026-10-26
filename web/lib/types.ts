@@ -1618,3 +1618,30 @@ export interface CacheRate {
   /** 当天日志文件是否存在 ✓ */
   found: boolean;
 }
+
+/** 页面监控：被盯的页面本身（含最近一次抓取结果）。 */
+export interface WatchPage {
+  id: number;
+  name: string;
+  url: string;
+  enabled: number;
+  interval_min: number;
+  last_check: number;
+  last_ok: number;
+  last_error: string;
+  title: string;
+  body_hash: string;
+  asset_hash: string;
+  created_at: number;
+  updated_at: number;
+}
+
+/** 页面监控：一次「变了」或「抓失败」的事件。 */
+export interface WatchEvent {
+  id: number;
+  page_id: number;
+  ts: number;
+  kind: 'body' | 'asset' | 'error';
+  summary: string;
+  detail: string;
+}

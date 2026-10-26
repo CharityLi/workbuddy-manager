@@ -40,6 +40,7 @@
     "forbidden": "权限不足：当前账号不能执行这个操作"
   },
   "nav": {
+    "watch": "页面监控",
     "groupOverview": "总览",
     "groupOps": "运营",
     "groupGovernance": "治理",

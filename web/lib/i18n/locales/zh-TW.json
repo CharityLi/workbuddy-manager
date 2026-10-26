@@ -40,6 +40,7 @@
     "forbidden": "權限不足：目前帳號無法執行這個操作"
   },
   "nav": {
+    "watch": "頁面監控",
     "groupOverview": "總覽",
     "groupOps": "營運",
     "groupGovernance": "治理",

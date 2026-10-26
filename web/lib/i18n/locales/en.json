@@ -40,6 +40,7 @@
     "forbidden": "Permission denied — your account is not allowed to do this"
   },
   "nav": {
+    "watch": "Page watch",
     "groupOverview": "Overview",
     "groupOps": "Operations",
     "groupGovernance": "Governance",

@@ -4,6 +4,8 @@ import {t, tp} from './i18n';
 import type {Realm} from './realm-context';
 import type {
   Account,
+  WatchEvent,
+  WatchPage,
   AccountsResponse,
   AuthDirOption,
   UpstreamServiceResult,
@@ -816,4 +818,15 @@ export const pgSyncApi = {
   importData: () =>
     post<{ok: boolean; message: string; status: PgSyncStatus}>('/api/settings/pg-sync/import'),
   status: () => get<PgSyncStatus>('/api/settings/pg-sync/status'),
+};
+
+export const watchApi = {
+  pages: () => get<{items: WatchPage[]}>('/api/watch/pages'),
+  add: (body: {url: string; name?: string; interval_min?: number}) =>
+    post<WatchPage>('/api/watch/pages', body),
+  toggle: (id: number, enabled: boolean) => patch<WatchPage>(`/api/watch/pages/${id}`, {enabled}),
+  remove: (id: number) => del<{ok: boolean}>(`/api/watch/pages/${id}`),
+  checkNow: (id: number) => post<{ok: boolean; changed: boolean}>(`/api/watch/pages/${id}/check`),
+  events: (pageId?: number, limit = 50) =>
+    get<{items: WatchEvent[]}>('/api/watch/events', pageId ? {page_id: pageId, limit} : {limit}),
 };

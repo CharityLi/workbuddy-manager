@@ -40,6 +40,7 @@
     "forbidden": "権限がありません：現在のアカウントではこの操作を実行できません"
   },
   "nav": {
+    "watch": "ページ監視",
     "groupOverview": "概要",
     "groupOps": "運用",
     "groupGovernance": "ガバナンス",
