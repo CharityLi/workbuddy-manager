@@ -58,6 +58,7 @@ import {
   type GroupFilter,
   type SortKey,
 } from '@/lib/account-list';
+import {Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle, DialogTrigger} from '@/components/animate-ui/radix/dialog';
 import {PageHeader} from '@/components/common/layout/PageHeader';
 import {PageSectionTabs} from '@/components/common/layout/PageSectionTabs';
 import {EmptyState} from '@/components/common/layout/EmptyState';
@@ -303,6 +304,11 @@ export default function AccountsPage() {
 
   /** 一键刷新所有账号的 accessToken（真的续期，末尾只重载一次上游） */
   const [refreshTokensBusy, setRefreshTokensBusy] = useState(false);
+  // 「账号 × 模型」主动探测：结果只放内存，不落库——探一次看一次，没有留档的必要
+  const [probeOpen, setProbeOpen] = useState(false);
+  const [probeModels, setProbeModels] = useState('glm-5.2, deepseek-v4.1-flash');
+  const [probeBusy, setProbeBusy] = useState(false);
+  const [probeData, setProbeData] = useState<Awaited<ReturnType<typeof accountApi.probeModels>> | null>(null);
   const refreshAllTokens = useCallback(async () => {
     setRefreshTokensBusy(true);
     try {
@@ -1229,6 +1235,80 @@ export default function AccountsPage() {
               <span className="sm:hidden">{t('accounts.creditsShort')}</span>
             </Button>
             )}
+            {/* 「模型探测」：真对每个账号 × 每个模型发一次最小对话请求。
+                模型目录里有、账号也健康，都不等于这个账号能调这个模型。 */}
+            <Dialog open={probeOpen} onOpenChange={setProbeOpen}>
+              <DialogTrigger asChild>
+                <Button size="sm" variant="outline" className="rounded-full" disabled={!visible.length}>
+                  <Sparkles />
+                  <span className="hidden sm:inline">{t('accounts.probeModels')}</span>
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-3xl">
+                <DialogHeader>
+                  <DialogTitle>{t('accounts.probeTitle')}</DialogTitle>
+                </DialogHeader>
+                <DialogBody className="space-y-3">
+                  <p className="text-xs text-muted-foreground">{t('accounts.probeHint')}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      className="min-w-0 flex-1 rounded-lg border bg-background px-3 py-1.5 text-sm"
+                      value={probeModels}
+                      onChange={(e) => setProbeModels(e.target.value)}
+                      placeholder="glm-5.2, deepseek-v4.1-flash"
+                    />
+                    <Button
+                      size="sm"
+                      className="rounded-full"
+                      disabled={probeBusy}
+                      onClick={async () => {
+                        const models = probeModels.split(/[,，\s]+/).map((x) => x.trim()).filter(Boolean);
+                        if (!models.length) return;
+                        setProbeBusy(true);
+                        try {
+                          setProbeData(await accountApi.probeModels(visible.map((a) => a.file), models, groupId));
+                        } catch (e) {
+                          notify.err(errText(e));
+                        } finally {
+                          setProbeBusy(false);
+                        }
+                      }}
+                    >
+                      {probeBusy ? <RefreshCw className="animate-spin" /> : <Sparkles />}
+                      {t('accounts.probeRun')}
+                    </Button>
+                  </div>
+                  {probeData && (
+                    <div className="max-h-[420px] overflow-auto rounded-xl border">
+                      <table className="w-full text-left text-xs">
+                        <thead className="sticky top-0 bg-muted/80 backdrop-blur">
+                          <tr>
+                            <th className="px-3 py-2 font-medium">{t('accounts.colNickname')}</th>
+                            {probeData.models.map((m) => (
+                              <th key={m} className="px-3 py-2 font-mono text-[11px] font-medium">{m}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {probeData.accounts.map((a) => (
+                            <tr key={a.file} className="border-t">
+                              <td className="px-3 py-1.5">{a.nickname}</td>
+                              {a.results.map((r) => (
+                                <td key={r.model} className="px-3 py-1.5" title={r.message}>
+                                  {r.ok
+                                    ? <span className="text-emerald-600 dark:text-emerald-400">✓ {r.ms}ms</span>
+                                    : <span className="text-destructive">✗</span>}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </DialogBody>
+              </DialogContent>
+            </Dialog>
             {/* 「一键刷新令牌」= 对所有账号真实续期 accessToken（逐个用 refreshToken
                 换新令牌），末尾只重载一次上游。与逐行那个 KeyRound 按钮同一套实现，
                 只是批量跑——账号多了不用挨个点。只有管理员能调（改的是凭证）。 */}

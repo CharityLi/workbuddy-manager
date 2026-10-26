@@ -288,6 +288,19 @@ export const accountApi = {
       failed: string[];
     }>('/api/accounts/refresh-credits?force=' + (force ? 'true' : 'false')
        + (upstreamId == null ? '' : `&upstream_id=${encodeURIComponent(String(upstreamId))}`)),
+  /** 「账号 × 模型」主动探测：真发最小对话请求，返回每个组合的可用性与耗时 */
+  probeModels: (files: string[], models: string[], upstreamId?: number | null) =>
+    post<{
+      models: string[];
+      combos: number;
+      accounts: {
+        file: string;
+        nickname: string;
+        exists: boolean;
+        results: {model: string; ok: boolean; message: string; ms: number}[];
+      }[];
+    }>('/api/accounts/probe-models' + (upstreamId == null ? '' : `?upstream_id=${encodeURIComponent(String(upstreamId))}`),
+      {files, models}),
   checkinAll: (upstreamId?: number | null) =>
     post<{
       /**

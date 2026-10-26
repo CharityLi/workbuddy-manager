@@ -1741,6 +1741,84 @@ def upstream_logs(limit: int = 200, user: dict = Depends(security.current_user))
     return {'available': lines != [], 'lines': interesting, 'total': len(lines)}
 
 
+# 「账号 × 模型」主动探测的边界。单次最多 60 个组合——再多就不是"探测"而是压测，
+# 既拖慢界面也容易被上游风控。账号之间最多 4 个并发，账号内部**串行**：
+# 同一个账号并发打不同模型会互相干扰（上游按账号限流），串行才能得到干净的结论。
+_PROBE_MAX_COMBOS = 60
+_PROBE_ACCOUNT_CONCURRENCY = 4
+
+
+@router.post('/accounts/probe-models')
+async def probe_models(payload: dict = Body(...),
+                       upstream_id: int | None = Query(None),
+                       user: dict = Depends(security.require_admin)) -> dict:
+    """对「账号 × 模型」矩阵做一次真实的可用性探测。
+
+    为什么要真发请求：模型目录里有、账号也健康，不代表这个账号**能调**这个模型
+    —— 有的模型对账号有权限要求，有的只在某些版本可用。只有真发一次最小对话
+    请求才能区分「能用」「没权限」「账号失效」。
+
+    请求体：`{"files": ["a.json", ...], "models": ["glm-5.2", ...]}`。
+    留空 `files` = 该分组下全部启用账号；单个模型失败不会中断整批。
+    """
+    import time as _time
+
+    base_dir = _require_dir(_group(upstream_id))
+    models = [str(m).strip() for m in (payload.get('models') or []) if str(m).strip()]
+    if not models:
+        raise HTTPException(status_code=400, detail='至少要选一个模型')
+    files = [str(f) for f in (payload.get('files') or []) if str(f).strip()]
+    if not files:
+        files = [a['file'] for a in _list(base_dir) if a.get('enabled')]
+    if len(files) * len(models) > _PROBE_MAX_COMBOS:
+        raise HTTPException(
+            status_code=400,
+            detail=f'组合数 {len(files) * len(models)} 超过上限 {_PROBE_MAX_COMBOS}，请减少账号或模型',
+        )
+
+    sem = asyncio.Semaphore(_PROBE_ACCOUNT_CONCURRENCY)
+
+    async def one(filename: str) -> dict:
+        try:
+            raw = _load(filename, base_dir)
+        except HTTPException as exc:
+            return {'file': filename, 'nickname': filename, 'exists': False,
+                    'results': [{'model': m, 'ok': False, 'message': str(exc.detail),
+                                 'ms': 0} for m in models]}
+        acct = raw.get('account') or {}
+        auth = raw.get('auth') or {}
+        probe_auth = {
+            'access_token': auth.get('accessToken', ''),
+            'uid': acct.get('uid', ''),
+            'enterprise_id': acct.get('enterpriseId', ''),
+            'domain': auth.get('domain', ''),
+            'realm': auth.get('realm'),
+            'device_token': str(raw.get('device_token') or ''),
+            'proxy': str(raw.get('proxy') or ''),
+        }
+        results = []
+        async with sem:
+            # 账号内串行：并发打同一账号会被上游当成异常流量
+            for m in models:
+                started = _time.monotonic()
+                ok, message = await tencent.probe_account(probe_auth, m)
+                results.append({
+                    'model': m,
+                    'ok': ok,
+                    'message': message,
+                    'ms': int((_time.monotonic() - started) * 1000),
+                })
+        return {'file': filename, 'nickname': str(acct.get('nickname') or filename),
+                'exists': True, 'results': results}
+
+    accounts = await asyncio.gather(*(one(f) for f in files))
+    return {
+        'models': models,
+        'accounts': list(accounts),
+        'combos': len(files) * len(models),
+    }
+
+
 @router.post('/accounts/{filename}/test')
 async def account_test(filename: str, upstream_id: int | None = Query(None),
                        user: dict = Depends(security.require_admin)) -> dict:
