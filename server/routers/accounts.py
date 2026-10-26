@@ -1467,6 +1467,17 @@ def clear_checkin_logs(user: dict = Depends(security.require_session_admin)) -> 
     return {'ok': True}
 
 
+def _nickname_resolver():
+    """兼容旧调用点：只要「uid → 昵称」一个解析函数。
+
+    显示名改造把这里换成了 `_account_resolver()`（同时给出昵称与前缀→完整 uid），
+    但签到/任务等旧调用点与既有测试仍按老签名取用。保留这一层薄包装，比让
+    每个调用点都改成解二元组更安全。
+    """
+    resolve_nick, _ = _account_resolver()
+    return resolve_nick
+
+
 def _account_resolver() -> tuple[object, object]:
     """构造 (uid → 昵称, uid 前缀 → 完整 uid) 两个解析函数。
 
