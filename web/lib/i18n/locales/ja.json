@@ -56,6 +56,8 @@
     "settings": "設定",
     "quickAdd": "クイック追加",
     "profile": "プロフィール",
+    "more": "もっと",
+    "pendingCount": "{n} 件未処理",
     "redPackets": "紅包"
   },
   "login": {
@@ -333,6 +335,10 @@
     "colNickname": "ニックネーム",
     "colStatus": "状態",
     "colExpiry": "Token 有効期限",
+    "colTodayCredit": "本日の消費",
+    "todayCreditLine": "本日の消費",
+    "todayCreditNone": "利用台帳が読めません",
+    "todayCreditTitle": "本日 {requests} 回のリクエストで計 {credit} クレジット消費（上流の利用台帳 data/usage.json）",
     "colActions": "操作",
     "searchPlaceholder": "ニックネーム / UID / ファイル名 / メモで検索",
     "groupUsable": "利用可能",

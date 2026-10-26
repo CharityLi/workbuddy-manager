@@ -56,6 +56,8 @@
     "settings": "Settings",
     "quickAdd": "Quick add",
     "profile": "Profile",
+    "more": "More",
+    "pendingCount": "{n} pending",
     "redPackets": "Red packets"
   },
   "login": {
@@ -360,6 +362,10 @@
     "colNickname": "Nickname",
     "colStatus": "Status",
     "colExpiry": "Token validity",
+    "colTodayCredit": "Used today",
+    "todayCreditLine": "Used today",
+    "todayCreditNone": "Usage ledger unavailable",
+    "todayCreditTitle": "Today: {requests} requests, {credit} credits used (upstream usage ledger data/usage.json)",
     "colActions": "Actions",
     "searchPlaceholder": "Search nickname / UID / file / note",
     "groupUsable": "Usable",

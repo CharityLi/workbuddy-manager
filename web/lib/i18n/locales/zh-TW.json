@@ -56,6 +56,8 @@
     "settings": "設定",
     "quickAdd": "快速新增",
     "profile": "個人資訊",
+    "more": "更多",
+    "pendingCount": "{n} 項待處理",
     "redPackets": "紅包"
   },
   "login": {
@@ -333,6 +335,10 @@
     "colNickname": "暱稱",
     "colStatus": "狀態",
     "colExpiry": "Token 有效期",
+    "colTodayCredit": "今日消耗",
+    "todayCreditLine": "今日消耗",
+    "todayCreditNone": "用量台账不可用",
+    "todayCreditTitle": "今日 {requests} 次請求共扣 {credit} 積分（上游用量台账 data/usage.json）",
     "colActions": "操作",
     "searchPlaceholder": "搜尋暱稱 / UID / 檔名 / 備註",
     "groupUsable": "可用",

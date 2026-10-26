@@ -56,6 +56,8 @@
     "settings": "설정",
     "quickAdd": "빠른 추가",
     "profile": "프로필",
+    "more": "더보기",
+    "pendingCount": "{n}건 처리 필요",
     "redPackets": "빨간 봉투"
   },
   "login": {
@@ -333,6 +335,10 @@
     "colNickname": "닉네임",
     "colStatus": "상태",
     "colExpiry": "Token 유효 기간",
+    "colTodayCredit": "오늘 소비",
+    "todayCreditLine": "오늘 소비",
+    "todayCreditNone": "사용 장부를 읽을 수 없음",
+    "todayCreditTitle": "오늘 {requests}회 요청으로 총 {credit} 크레딧 소비(업스트림 사용 장부 data/usage.json)",
     "colActions": "작업",
     "searchPlaceholder": "닉네임 / UID / 파일명 / 메모 검색",
     "groupUsable": "사용 가능",
