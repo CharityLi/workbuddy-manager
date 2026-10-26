@@ -52,8 +52,17 @@ WB2API_START_SCRIPT = Path(_env(
 WB2API_STOP_SCRIPT = Path(_env(
     'WB2API_STOP_SCRIPT', str(UPSTREAM_DIR / 'stop-workbuddy2api.cmd'),
 ))
+# 上游日志。**注意两条流写的是不同文件**：聊天请求行（带账号）走 stdout，
+# 自动任务行与大堆启动/告警走 stderr。历史上只有一个配置项，两个采集器都读它，
+# 结果必然有一边整列读不到（「密钥 dsh 未显示消耗账号」就是这么来的）。
+# 缺省值只作为候选起点：真正的文件由 `services/upstream_logs.pick_log()` 按内容
+# 在「同目录 *.log」里挑，部署换了文件名也不用再改配置。
 WB2API_LOG_FILE = Path(_env(
     'WB2API_LOG_FILE', str(UPSTREAM_DIR / 'data' / 'server.err.log'),
+))
+# 聊天请求行所在的文件（可留空 = 自动探测）。本机实测是 data/gateway.out.log。
+WB2API_ACCOUNT_LOG_FILE = Path(_env(
+    'WB2API_ACCOUNT_LOG_FILE', str(WB2API_LOG_FILE.parent / 'gateway.out.log'),
 ))
 # 上游用量台账（`internal/usage` 落盘的 data/usage.json）。
 # 账号页的「今日消耗积分」只能从这里取：它是本机唯一带 uid 维度的扣费记录

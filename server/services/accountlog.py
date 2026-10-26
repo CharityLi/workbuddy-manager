@@ -33,9 +33,10 @@ import asyncio
 import datetime
 import logging
 import re
+from pathlib import Path
 
-from .. import db
-from . import wb2api
+from .. import config, db, upstreamsvc
+from . import upstream_logs, wb2api
 
 logger = logging.getLogger('workbuddy.accountlog')
 
@@ -203,15 +204,77 @@ def parse_request_lines_with_mtime(lines: list[str], mtime: float | None) -> lis
     return out
 
 
+def _looks_like_chat(line: str) -> bool:
+    """探针：这一行是不是上游的聊天请求行（供 `upstream_logs.pick_log` 挑文件）。"""
+    return _CHAT_LINE.search(line) is not None
+
+
+def _group_targets() -> list[tuple[object, Path, list[int]]]:
+    """列出「哪些日志文件里能找到哪组密钥的聊天行」。
+
+    多上游分组下**每个分组实例各写一份日志**：dsh 密钥绑在「流水账号」分组上，
+    它的聊天行落在 `instance-liushui/data/gateway.out.log`，默认上游的日志里
+    永远没有它 —— 这正是「密钥 dsh 未显示消耗账号」的直接原因。所以按分组
+    分别采集，并且各自限定自己那把密钥的请求行。
+
+    返回 `[(upstream_id, prefer_path, key_ids)]`，`upstream_id=None` 表示默认上游。
+    分组日志目录用 `upstreams.usage_file` 的父目录推导（同一份 data/ 目录）。
+    """
+    try:
+        rows = db.query('SELECT id, upstream_id FROM api_keys WHERE enabled = 1')
+    except Exception:  # noqa: BLE001
+        return []
+    by_group: dict[object, list[int]] = {}
+    for row in rows:
+        by_group.setdefault(row['upstream_id'], []).append(int(row['id']))
+
+    targets: list[tuple[object, Path, list[int]]] = []
+    if None in by_group:
+        targets.append((None, config.WB2API_ACCOUNT_LOG_FILE, by_group[None]))
+    for gid, keys in by_group.items():
+        if gid is None:
+            continue
+        try:
+            upstream = upstreamsvc.get_upstream(gid)
+        except Exception:  # noqa: BLE001
+            upstream = None
+        if not upstream or not upstream.get('enabled', 1):
+            continue
+        usage_file = str(upstream.get('usage_file') or '')
+        if not usage_file:
+            # 没有台账文件就推不出该实例的 data/ 目录，宁可跳过也不猜
+            continue
+        targets.append((gid, Path(usage_file).parent / 'gateway.out.log', keys))
+    return targets
+
+
 def _collect_once() -> int:
-    """读一次上游日志并回填账号。返回回填条数（同步，供 to_thread 调用）。"""
-    lines, mtime = wb2api.read_container_logs(_TAIL, timestamps=True, with_mtime=True)
-    if not lines:
-        return 0
-    entries = parse_request_lines_with_mtime(lines, mtime)
-    if not entries:
-        return 0
-    return db.attach_request_accounts(entries)
+    """读一次上游日志并回填账号。返回回填条数（同步，供 to_thread 调用）。
+
+    读哪个文件由 `upstream_logs` 按**内容**挑：聊天行在 stdout（`gateway.out.log`），
+    不在任务行所在的 stderr 里；分组实例还要去各自的 data/ 目录里找。
+    """
+    if config.WB2API_MODE != 'native':
+        lines, mtime = wb2api.read_container_logs(_TAIL, timestamps=True, with_mtime=True)
+        if not lines:
+            return 0
+        return db.attach_request_accounts(parse_request_lines_with_mtime(lines, mtime))
+
+    filled = 0
+    for group_id, prefer, key_ids in _group_targets():
+        # kind 里带上分组：不同组各自缓存各自命中的文件
+        path = upstream_logs.pick_log(f'chat:{group_id!r}', _looks_like_chat,
+                                      prefer=prefer)
+        if path is None:
+            continue
+        lines, mtime = upstream_logs.read_tail(path, _TAIL)
+        if not lines:
+            continue
+        entries = parse_request_lines_with_mtime(lines, mtime)
+        if not entries:
+            continue
+        filled += db.attach_request_accounts(entries, key_ids=key_ids)
+    return filled
 
 
 async def _loop() -> None:

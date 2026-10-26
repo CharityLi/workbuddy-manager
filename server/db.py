@@ -1199,7 +1199,8 @@ def add_request_log(**fields: object) -> None:
 _ACCOUNT_MATCH_WINDOW = 3
 
 
-def attach_request_accounts(entries: Iterable[dict]) -> int:
+def attach_request_accounts(entries: Iterable[dict],
+                            key_ids: Iterable[int] | None = None) -> int:
     """把从上游日志采集到的账号回填到对应的请求日志行（issue #69）。返回回填条数。
 
     entries 形如 `[{'ts': 结束时刻(epoch 秒), 'model': 上游侧模型名,
@@ -1214,7 +1215,23 @@ def attach_request_accounts(entries: Iterable[dict]) -> int:
 
     模型名两边都取**映射后**的名字（`mapped_model`），另兼看 `model` ——
     映射表变更时两边可能只对得上一个。
+
+    `key_ids`：限定只回填这些密钥的请求行。多上游分组下**必须**传：分组实例
+    各写各的日志，而两侧模型名常常一样（都是 `cn:deepseek-v4.1-flash`），
+    不限定就会把「流水账号实例」的账号填到「默认上游」的请求行上。传空集合
+    表示「该分组没有密钥」——直接不回填，而不是退化为不过滤。
     """
+    key_filter: list[int] = []
+    if key_ids is not None:
+        for kid in key_ids:
+            try:
+                key_filter.append(int(kid))
+            except (TypeError, ValueError):
+                continue
+        if not key_filter:
+            return 0
+    marks = ','.join('?' * len(key_filter))
+    scope_sql = f' AND key_id IN ({marks}) ' if key_filter else ' '
     filled = 0
     for e in entries:
         ts = e.get('ts')
@@ -1233,9 +1250,10 @@ def attach_request_accounts(entries: Iterable[dict]) -> int:
                 'SELECT id FROM request_logs '
                 'WHERE account IS NULL AND ts BETWEEN ? AND ? '
                 '  AND (mapped_model = ? OR model = ?) '
+                + scope_sql +
                 'ORDER BY ABS(ts - ?) LIMIT 1',
                 (ts - _ACCOUNT_MATCH_WINDOW, ts + _ACCOUNT_MATCH_WINDOW,
-                 model, model, ts),
+                 model, model, *key_filter, ts),
             )
             if row is None:
                 continue
