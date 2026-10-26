@@ -166,7 +166,7 @@ function DialogContent({
                   // （`tabindex="-1"`），WebKit 会沿着弹窗边缘画一圈焦点框 ——
                   // 移动端表现为「点开弹窗闪一下边框」。容器从不是可交互目标，
                   // 焦点指示交给里面的第一个控件，这里一律不画。
-                  'fixed left-[50%] top-[50%] z-50 grid max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] gap-0 overflow-hidden rounded-[24px] border border-border/60 bg-background shadow-[0_24px_60px_rgba(15,23,42,0.10)] duration-200 outline-none focus:outline-none dark:border-border/70 dark:bg-background dark:shadow-[0_24px_60px_rgba(0,0,0,0.42)]',
+                  'fixed left-[50%] top-[50%] z-50 grid grid-cols-[minmax(0,1fr)] max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] gap-0 overflow-hidden rounded-[24px] border border-border/60 bg-background shadow-[0_24px_60px_rgba(15,23,42,0.10)] duration-200 outline-none focus:outline-none dark:border-border/70 dark:bg-background dark:shadow-[0_24px_60px_rgba(0,0,0,0.42)]',
                   className,
               )}
               {...props}
@@ -193,7 +193,7 @@ function DialogHeader({className, ...props}: DialogHeaderProps) {
     <div
       data-slot="dialog-header"
       className={cn(
-          'flex flex-col gap-1.5 px-6 py-4 text-left bg-background',
+          'flex min-w-0 flex-col gap-1.5 px-6 py-4 text-left bg-background',
           className,
       )}
       {...props}
@@ -211,7 +211,7 @@ function DialogFooter({className, ...props}: DialogFooterProps) {
           // `flex-wrap`：按钮文字长（翻译后）/ 窗口窄时改为换行，而不是被
           // 弹窗的 `overflow-hidden` 从右边裁掉半个按钮（真机上复现过：英文
           // 或亚洲语言把「保存」撑宽后，右按钮只剩一半）。
-          'flex flex-row flex-wrap items-center justify-end gap-2 px-6 py-4 bg-background',
+          'flex min-w-0 flex-row flex-wrap items-center justify-end gap-2 px-6 py-4 bg-background',
           className,
       )}
       {...props}
@@ -242,7 +242,7 @@ function DialogBody({className, children, ...props}: DialogBodyProps) {
   return (
     <ScrollArea
       data-slot="dialog-body"
-      className={cn('min-h-0 flex-1', className)}
+      className={cn('min-h-0 min-w-0 flex-1', className)}
       {...props}
     >
       {children}

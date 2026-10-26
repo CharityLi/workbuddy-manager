@@ -249,12 +249,14 @@ export function UpstreamFormDialog({
               />
             </div>
             {simple && (
-              <div className="space-y-1.5">
+              <div className="min-w-0 space-y-1.5">
                 <Label className="text-[11px] text-muted-foreground">
                   {t('upstreams.fieldDir')}
                 </Label>
                 {renderDirOptions()}
-                <p className="truncate text-[11px] leading-4 text-muted-foreground" title={form.auth_dir}>
+                {/* `min-w-0` + `truncate`：绝对路径很长，父级若是 flex/grid 子项，
+                    默认 min-width:auto 会让它按内容宽度撑开，把弹窗里的按钮顶出去 */}
+                <p className="min-w-0 truncate text-[11px] leading-4 text-muted-foreground" title={form.auth_dir}>
                   {form.auth_dir || t('upstreams.fieldDirPlaceholder')}
                 </p>
               </div>
