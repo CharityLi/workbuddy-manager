@@ -1159,7 +1159,7 @@
     "sectionImproved": "改進",
     "sectionNotes": "說明",
     "sectionPlanned": "計劃中",
-    "tabLocal": "本地更新日誌",
+    "tabLocal": "本機更新",
     "tabUpstream": "上游更新",
     "upstreamTitle": "上游倉庫發佈版本",
     "upstreamRepo": "上游倉庫",
@@ -1177,7 +1177,7 @@
     "upstreamEmpty": "還沒取得版本列表。點上面的「立即檢查」試一次。",
     "upstreamLoadFailed": "讀取上游更新日誌失敗",
     "upstreamAppVersion": "上游版本 {v}",
-    "upstreamListHint": "以下是 v{min} 起的 {n} 個發佈版本，點版本號展開說明",
+    "upstreamListHint": "以下是 {min} 起的 {n} 個發佈版本，點版本號展開說明",
     "localEmpty": "目前建置沒有未發佈的變更"
   },
   "updatePanel": {

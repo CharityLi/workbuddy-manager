@@ -1159,8 +1159,8 @@
     "sectionImproved": "改善",
     "sectionNotes": "補足",
     "sectionPlanned": "予定",
-    "tabLocal": "ローカルの更新履歴",
-    "tabUpstream": "上流の更新",
+    "tabLocal": "ローカル更新",
+    "tabUpstream": "上流更新",
     "upstreamTitle": "上流リポジトリのリリース",
     "upstreamRepo": "上流リポジトリ",
     "upstreamCheckedAt": "前回の確認：{t}",
@@ -1177,7 +1177,7 @@
     "upstreamEmpty": "まだバージョン一覧を取得できていません。上の「今すぐ確認」をお試しください。",
     "upstreamLoadFailed": "上流の更新履歴を読み込めませんでした",
     "upstreamAppVersion": "上流バージョン {v}",
-    "upstreamListHint": "v{min} 以降の {n} 件のリリースです。バージョン名を押すと内容が開きます",
+    "upstreamListHint": "{min} 以降の {n} 件のリリースです。バージョン名を押すと内容が開きます",
     "localEmpty": "このビルドに未公開の変更はありません"
   },
   "updatePanel": {

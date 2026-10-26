@@ -20,12 +20,12 @@ await new Promise((r) => setTimeout(r, 1200));
 
 // 本地标签（默认）
 out.localTabActive = await page.$$eval('button', (bs) =>
-  bs.map((b) => b.textContent?.trim()).filter((t) => t === '本地更新日志' || t === '上游更新'));
+  bs.map((b) => b.textContent?.trim()).filter((t) => t?.startsWith('本地更新') || t?.startsWith('上游更新')));
 await page.screenshot({path: '/tmp/upstream-local.png'});
 
 // 切到上游标签
 const clicked = await page.$$eval('button', (bs) => {
-  const b = bs.find((x) => x.textContent?.trim() === '上游更新');
+  const b = bs.find((x) => (x.textContent?.trim() || '').startsWith('上游更新'));
   if (b) { b.click(); return true; }
   return false;
 });
@@ -41,7 +41,7 @@ out.upstream = await page.evaluate(() => {
     hasLatest: text.includes('v2.10.2'),
     hasLocal: text.includes('v2.9.0'),
     hasHeads: text.includes('上游最新版本') && text.includes('本机当前版本'),
-    hasListHint: text.includes('v1.0.87') && /32 个发布版本/.test(text),
+    hasListHint: text.includes('v1.0.87') && /32 个发布版本/.test(text) && !text.includes('vv1.0.87'),
     versionBlocks: (text.match(/v\d+\.\d+\.\d+/g) || []).length,
     hScroll: document.documentElement.scrollWidth > document.documentElement.clientWidth,
   };

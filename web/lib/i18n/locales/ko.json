@@ -1159,7 +1159,7 @@
     "sectionImproved": "개선",
     "sectionNotes": "설명",
     "sectionPlanned": "예정",
-    "tabLocal": "로컬 업데이트 로그",
+    "tabLocal": "로컬 업데이트",
     "tabUpstream": "업스트림 업데이트",
     "upstreamTitle": "업스트림 릴리스",
     "upstreamRepo": "업스트림 저장소",
@@ -1177,7 +1177,7 @@
     "upstreamEmpty": "아직 버전 목록을 가져오지 못했습니다. 위의 \"지금 확인\"을 눌러 보세요.",
     "upstreamLoadFailed": "업스트림 업데이트 로그를 읽지 못했습니다",
     "upstreamAppVersion": "업스트림 버전 {v}",
-    "upstreamListHint": "v{min} 이후의 릴리스 {n}개입니다. 버전을 누르면 내용이 열립니다",
+    "upstreamListHint": "{min} 이후의 릴리스 {n}개입니다. 버전을 누르면 내용이 열립니다",
     "localEmpty": "이 빌드에 아직 공개되지 않은 변경이 없습니다"
   },
   "updatePanel": {

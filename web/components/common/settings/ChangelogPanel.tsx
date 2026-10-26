@@ -220,38 +220,15 @@ function VersionBlock({
   );
 }
 
-function LocalChangelog() {
+function LocalChangelog({data, error}: {data: Changelog | null; error: string}) {
   const t = useT();
-  const [data, setData] = useState<Changelog | null>(null);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState<string | null>(null);
 
+  // 「未发布」那一版默认展开：本地这栏通常只有这一版
+  const unreleasedVersion = (data?.versions || []).find((v) => v.unreleased)?.version ?? null;
   useEffect(() => {
-    let alive = true;
-    systemApi
-      .changelog()
-      .then((d) => {
-        if (!alive) return;
-        setData(d);
-        if (!d.available) setError(d.error || t('changelog.unavailable'));
-        else if (d.versions.length) setOpen(d.versions[0].version);
-      })
-      .catch(() => alive && setError(t('changelog.loadFailed')))
-      .finally(() => alive && setLoading(false));
-    return () => {
-      alive = false;
-    };
-  }, [t]);
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center gap-2 rounded-[20px] bg-muted py-16 text-xs text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        {t('changelog.loading')}
-      </div>
-    );
-  }
+    if (unreleasedVersion) setOpen((cur) => cur ?? unreleasedVersion);
+  }, [unreleasedVersion]);
 
   if (error || !data?.available) {
     return (
@@ -335,32 +312,24 @@ function LocalChangelog() {
  * 数据来自每日巡检（`services/upstreamwatch`）缓存的 Release 列表，页面打开时
  * 只读缓存；「立即检查」才联网。
  */
-function UpstreamChangelog() {
+function UpstreamChangelog({initial, initialError}: {initial: UpstreamLog | null; initialError: string}) {
   const t = useT();
-  const [data, setData] = useState<UpstreamLog | null>(null);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<UpstreamLog | null>(initial);
+  const [error, setError] = useState(initialError);
   const [checking, setChecking] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
 
   const apply = (d: UpstreamLog) => {
     setData(d);
-    // 默认展开本机当前版本那一版：用户最想看的就是「我这版之后多了什么」
-    const mine = d.local_version.replace(/^v/i, '');
-    setOpen((cur) => cur ?? (d.versions.find((v) => v.version === mine)?.version ?? d.versions[0]?.version ?? null));
+    // 默认展开**最新版本**：进这栏就是要看「上游现在发到哪、都改了什么」
+    setOpen((cur) => cur ?? d.versions[0]?.version ?? null);
   };
 
   useEffect(() => {
-    let alive = true;
-    systemApi
-      .upstreamLog()
-      .then((d) => alive && apply(d))
-      .catch(() => alive && setError(t('changelog.upstreamLoadFailed')))
-      .finally(() => alive && setLoading(false));
-    return () => {
-      alive = false;
-    };
-  }, [t]);
+    if (initial) apply(initial);
+    // 只在首次拿到父组件数据时展开一次，之后由用户自己点
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initial]);
 
   const runCheck = async () => {
     setChecking(true);
@@ -376,15 +345,6 @@ function UpstreamChangelog() {
       setChecking(false);
     }
   };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center gap-2 rounded-[20px] bg-muted py-16 text-xs text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        {t('changelog.loading')}
-      </div>
-    );
-  }
 
   const meta = data;
   const repoUrl = meta?.repo ? `https://github.com/${meta.repo}` : '';
@@ -507,14 +467,46 @@ function UpstreamChangelog() {
 
 export function ChangelogPanel() {
   const t = useT();
-  const [view, setView] = useState<'local' | 'upstream'>('local');
-  const tabs: Array<{key: 'local' | 'upstream'; label: string}> = [
-    {key: 'local', label: t('changelog.tabLocal')},
-    {key: 'upstream', label: t('changelog.tabUpstream')},
+  // 默认落在「上游更新」：来这里的人通常先想知道「上游发到哪一版了、都改了什么」，
+  // 本地这栏（只有未发布的改动）多数时候是空的。
+  const [view, setView] = useState<'local' | 'upstream'>('upstream');
+  const [local, setLocal] = useState<Changelog | null>(null);
+  const [localError, setLocalError] = useState('');
+  const [upstream, setUpstream] = useState<UpstreamLog | null>(null);
+  const [upstreamError, setUpstreamError] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  // 两个数据在这里一起取：标签上要显示版本号，未挂载的那一栏也得知道版本
+  useEffect(() => {
+    let alive = true;
+    Promise.allSettled([systemApi.changelog(), systemApi.upstreamLog()])
+      .then(([l, u]) => {
+        if (!alive) return;
+        if (l.status === 'fulfilled') {
+          setLocal(l.value);
+          if (!l.value.available) setLocalError(l.value.error || t('changelog.unavailable'));
+        } else {
+          setLocalError(t('changelog.loadFailed'));
+        }
+        if (u.status === 'fulfilled') setUpstream(u.value);
+        else setUpstreamError(t('changelog.upstreamLoadFailed'));
+      })
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [t]);
+
+  const localTag = (local?.current || '').replace(/^v/i, '');
+  const upstreamTag = (upstream?.latest || '').replace(/^v/i, '');
+  const tabs: Array<{key: 'local' | 'upstream'; label: string; version: string}> = [
+    {key: 'upstream', label: t('changelog.tabUpstream'), version: upstreamTag},
+    {key: 'local', label: t('changelog.tabLocal'), version: localTag},
   ];
+
   return (
     <div className="space-y-3">
-      <div className="inline-flex rounded-full bg-muted p-0.5" role="tablist">
+      <div className="inline-flex items-center rounded-full bg-muted p-0.5" role="tablist">
         {tabs.map((tab) => (
           <button
             key={tab.key}
@@ -523,17 +515,29 @@ export function ChangelogPanel() {
             aria-selected={view === tab.key}
             onClick={() => setView(tab.key)}
             className={cn(
-              'rounded-full px-3 py-1 text-xs transition-colors',
+              'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs transition-colors',
               view === tab.key
                 ? 'bg-background font-medium text-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >
             {tab.label}
+            {tab.version && (
+              <span className="font-mono text-[10px] text-muted-foreground">v{tab.version}</span>
+            )}
           </button>
         ))}
       </div>
-      {view === 'local' ? <LocalChangelog /> : <UpstreamChangelog />}
+      {loading ? (
+        <div className="flex items-center justify-center gap-2 rounded-[20px] bg-muted py-16 text-xs text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          {t('changelog.loading')}
+        </div>
+      ) : view === 'local' ? (
+        <LocalChangelog data={local} error={localError} />
+      ) : (
+        <UpstreamChangelog initial={upstream} initialError={upstreamError} />
+      )}
     </div>
   );
 }

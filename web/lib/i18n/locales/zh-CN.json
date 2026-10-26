@@ -1159,7 +1159,7 @@
     "sectionImproved": "改进",
     "sectionNotes": "说明",
     "sectionPlanned": "计划中",
-    "tabLocal": "本地更新日志",
+    "tabLocal": "本地更新",
     "tabUpstream": "上游更新",
     "upstreamTitle": "上游仓库发布版本",
     "upstreamRepo": "上游仓库",
@@ -1177,7 +1177,7 @@
     "upstreamEmpty": "还没拿到版本列表。点上面的「立即检查」试一次。",
     "upstreamLoadFailed": "读取上游更新日志失败",
     "upstreamAppVersion": "上游版本 {v}",
-    "upstreamListHint": "以下是 v{min} 起的 {n} 个发布版本，点版本号展开说明",
+    "upstreamListHint": "以下是 {min} 起的 {n} 个发布版本，点版本号展开说明",
     "localEmpty": "当前构建没有未发布的改动"
   },
   "updatePanel": {

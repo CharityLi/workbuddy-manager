@@ -1186,7 +1186,7 @@
     "sectionImproved": "Improved",
     "sectionNotes": "Notes",
     "sectionPlanned": "Planned",
-    "tabLocal": "Local changelog",
+    "tabLocal": "Local updates",
     "tabUpstream": "Upstream updates",
     "upstreamTitle": "Upstream releases",
     "upstreamRepo": "Upstream repo",
@@ -1204,7 +1204,7 @@
     "upstreamEmpty": "No version list yet. Try \"Check now\" above.",
     "upstreamLoadFailed": "Failed to read the upstream changelog",
     "upstreamAppVersion": "Upstream version {v}",
-    "upstreamListHint": "{n} releases since v{min}; click a version to expand it",
+    "upstreamListHint": "{n} releases since {min}; click a version to expand it",
     "localEmpty": "No unreleased changes in this build"
   },
   "updatePanel": {
