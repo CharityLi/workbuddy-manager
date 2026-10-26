@@ -252,6 +252,8 @@
     "healthSnapshot": "Account health snapshot",
     "viewAllAccounts": "View all accounts",
     "creditsFlowTitle": "Credit income & expense",
+    "chartLine": "Line chart",
+    "chartBar": "Bar chart",
     "creditsFlowEmpty": "No income/expense data yet",
     "creditsFlowFailed": "Couldn't load income/expense data",
     "income": "Income",

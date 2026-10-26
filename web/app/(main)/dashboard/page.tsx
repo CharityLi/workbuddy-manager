@@ -3,10 +3,15 @@
 import {useEffect, useMemo, useState} from 'react';
 import type {ReactNode} from 'react';
 import Link from 'next/link';
-import {Users, CircleCheck, TriangleAlert, Activity, Server, Coins, ChevronRight} from 'lucide-react';
+import {
+  Users, CircleCheck, TriangleAlert, Activity, Server, Coins, ChevronRight,
+  ChartLine, ChartColumn,
+} from 'lucide-react';
 import {
   Area,
   AreaChart,
+  Bar,
+  BarChart,
   CartesianGrid,
   Legend,
   Line,
@@ -91,6 +96,7 @@ const EMPTY_FLOW: CreditsFlow = {
   week: {income: 0, expense: 0, net: 0},
   total: {income: 0, expense: 0, net: 0},
   daily: [],
+  hourly: [],
 };
 
 /** `refreshCredits` 的返回体形状（扇出后要逐项相加，类型从 api 上取） */
@@ -225,6 +231,8 @@ export default function DashboardPage() {
    * 上下文」的代价，而时段只是这一张图的查询范围。分开后只有本卡片重取。
    */
   const [flowDays, setFlowDays] = useState('7');
+  // 折线 / 柱状切换（上游 2.10.0）：同一份数据换个读法，不改变口径
+  const [flowKind, setFlowKind] = useState<'line' | 'bar'>('line');
   const flowState = useAsyncAll({
     flow: () => statsApi.creditsFlow(Number(flowDays) || 7, realm),
   }, [realm, flowDays]);
@@ -240,6 +248,18 @@ export default function DashboardPage() {
   const flowFailed = 'flow' in flowState.errors;
   /** 区间内是否有任何收支——全 0 时画图没意义，给空态 */
   const hasFlow = flow.total.income > 0 || flow.total.expense > 0;
+  /** 只选了「今天」且有小时数据时，X 轴走到小时（否则维持按天） */
+  const flowByHour = flowDays === '1' && flow.hourly.length > 0;
+  const flowChart = useMemo(
+    () => (flowByHour
+      ? flow.hourly.map((h) => ({
+          day: `${String(h.hour).padStart(2, '0')}:00`,
+          income: h.income,
+          expense: h.expense,
+        }))
+      : flow.daily.map((d) => ({day: d.day, income: d.income, expense: d.expense}))),
+    [flow, flowByHour],
+  );
 
   const slices: GroupSlice[] = values.pool ?? EMPTY_SLICES;
   const summary: StatsSummary | null = values.summary ?? null;
@@ -603,6 +623,36 @@ export default function DashboardPage() {
             <Coins className="h-4 w-4" />
             {t('dashboard.creditsFlowTitle')}
           </div>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-0.5 rounded-full bg-background/60 p-0.5"
+                 role="group" aria-label={t('dashboard.creditsFlowTitle')}>
+              <button
+                type="button"
+                onClick={() => setFlowKind('line')}
+                aria-pressed={flowKind === 'line'}
+                title={t('dashboard.chartLine')}
+                className={`grid h-7 w-7 place-items-center rounded-full transition ${
+                  flowKind === 'line'
+                    ? 'bg-foreground text-background'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <ChartLine className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setFlowKind('bar')}
+                aria-pressed={flowKind === 'bar'}
+                title={t('dashboard.chartBar')}
+                className={`grid h-7 w-7 place-items-center rounded-full transition ${
+                  flowKind === 'bar'
+                    ? 'bg-foreground text-background'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <ChartColumn className="h-3.5 w-3.5" />
+              </button>
+            </div>
           <Select value={flowDays} onValueChange={setFlowDays}>
             <SelectTrigger
               className="h-8 w-[130px] rounded-full"
@@ -618,6 +668,7 @@ export default function DashboardPage() {
               <SelectItem value="30">{t('stats.last30')}</SelectItem>
             </SelectContent>
           </Select>
+          </div>
         </div>
 
         {flowFailed && !flowState.values.flow ? (
@@ -655,39 +706,66 @@ export default function DashboardPage() {
                 <ResponsiveContainer width="100%" height="100%">
                   {/* 左边距不能给负数：轴宽 48 减去它才是刻度的可用宽度，
                       4 位数的刻度会越出图表左边缘被裁掉（issue #184 的遮挡就是这么来的）。 */}
-                  <LineChart data={flow.daily} margin={{top: 4, right: 4, bottom: 0, left: 0}}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                    <XAxis dataKey="day" tickLine={false} axisLine={false} fontSize={11}
-                           stroke="var(--muted-foreground)" />
-                    {/* 双 Y 轴：收入常是几千、支出常是几十。同一根轴会把支出压成
-                        贴着 0 的直线，等于没画。左轴收入、右轴支出，颜色与曲线对应。 */}
-                    <YAxis yAxisId="inc" tickLine={false} axisLine={false} fontSize={11}
-                           stroke="var(--chart-2)" width={52} />
-                    <YAxis yAxisId="exp" orientation="right" tickLine={false} axisLine={false}
-                           fontSize={11} stroke="var(--destructive)" width={48} />
-                    <Tooltip
-                      contentStyle={{
-                        background: 'var(--popover)',
-                        border: '1px solid var(--border)',
-                        borderRadius: 12,
-                        fontSize: 12,
-                      }}
-                      /* ★ 2026-10-23：tooltip 里的支出原来显示 177.20999999999995 ✗
-                         recharts 默认直接 String(value) ⇒ 浮点长尾全暴露 ✓
-                         统一截到 2 位 + 千分位 ✓（与卡片上的数字口径一致 ✓） */
-                      formatter={(value, name) => [
-                        fmtCredit2(Number(value)),
-                        String(name),
-                      ]}
-                    />
-                    <Legend wrapperStyle={{fontSize: 11}} />
-                    <Line yAxisId="inc" type="monotone" dataKey="income"
-                          name={t('dashboard.income')} stroke="var(--chart-2)"
-                          strokeWidth={2} dot={false} />
-                    <Line yAxisId="exp" type="monotone" dataKey="expense"
-                          name={t('dashboard.expense')} stroke="var(--destructive)"
-                          strokeWidth={2} dot={false} />
-                  </LineChart>
+                  {flowKind === 'bar' ? (
+                    <BarChart data={flowChart} margin={{top: 4, right: 4, bottom: 0, left: 0}}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                      <XAxis dataKey="day" tickLine={false} axisLine={false} fontSize={11}
+                             stroke="var(--muted-foreground)"
+                             interval={flowByHour ? 3 : 'preserveStartEnd'} />
+                      <YAxis yAxisId="inc" tickLine={false} axisLine={false} fontSize={11}
+                             stroke="var(--chart-2)" width={52} />
+                      <YAxis yAxisId="exp" orientation="right" tickLine={false} axisLine={false}
+                             fontSize={11} stroke="var(--destructive)" width={48} />
+                      <Tooltip
+                        contentStyle={{
+                          background: 'var(--popover)',
+                          border: '1px solid var(--border)',
+                          borderRadius: 12,
+                          fontSize: 12,
+                        }}
+                        formatter={(value, name) => [fmtCredit2(Number(value)), String(name)]}
+                      />
+                      <Legend wrapperStyle={{fontSize: 11}} />
+                      <Bar yAxisId="inc" dataKey="income" name={t('dashboard.income')}
+                           fill="var(--chart-2)" radius={[4, 4, 0, 0]} maxBarSize={26} />
+                      <Bar yAxisId="exp" dataKey="expense" name={t('dashboard.expense')}
+                           fill="var(--destructive)" radius={[4, 4, 0, 0]} maxBarSize={26} />
+                    </BarChart>
+                  ) : (
+                    <LineChart data={flowChart} margin={{top: 4, right: 4, bottom: 0, left: 0}}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                      <XAxis dataKey="day" tickLine={false} axisLine={false} fontSize={11}
+                             stroke="var(--muted-foreground)" />
+                      {/* 双 Y 轴：收入常是几千、支出常是几十。同一根轴会把支出压成
+                          贴着 0 的直线，等于没画。左轴收入、右轴支出，颜色与曲线对应。 */}
+                      <YAxis yAxisId="inc" tickLine={false} axisLine={false} fontSize={11}
+                             stroke="var(--chart-2)" width={52} />
+                      <YAxis yAxisId="exp" orientation="right" tickLine={false} axisLine={false}
+                             fontSize={11} stroke="var(--destructive)" width={48} />
+                      <Tooltip
+                        contentStyle={{
+                          background: 'var(--popover)',
+                          border: '1px solid var(--border)',
+                          borderRadius: 12,
+                          fontSize: 12,
+                        }}
+                        /* ★ 2026-10-23：tooltip 里的支出原来显示 177.20999999999995 ✗
+                           recharts 默认直接 String(value) ⇒ 浮点长尾全暴露 ✓
+                           统一截到 2 位 + 千分位 ✓（与卡片上的数字口径一致 ✓） */
+                        formatter={(value, name) => [
+                          fmtCredit2(Number(value)),
+                          String(name),
+                        ]}
+                      />
+                      <Legend wrapperStyle={{fontSize: 11}} />
+                      <Line yAxisId="inc" type="monotone" dataKey="income"
+                            name={t('dashboard.income')} stroke="var(--chart-2)"
+                            strokeWidth={2} dot={false} />
+                      <Line yAxisId="exp" type="monotone" dataKey="expense"
+                            name={t('dashboard.expense')} stroke="var(--destructive)"
+                            strokeWidth={2} dot={false} />
+                    </LineChart>
+                  )}
                 </ResponsiveContainer>
               ) : (
                 <div className="grid h-full place-items-center text-xs text-muted-foreground">

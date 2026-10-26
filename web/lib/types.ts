@@ -771,6 +771,14 @@ export interface CreditsFlowPoint {
   net: number;
 }
 
+/** 一小时的积分收入 / 支出（`days=1` 时 `hourly` 的项） */
+export interface CreditsFlowHourPoint {
+  hour: number;
+  income: number;
+  expense: number;
+  net: number;
+}
+
 /**
  * 积分收支统计。
  *
@@ -786,6 +794,12 @@ export interface CreditsFlow {
   week: {income: number; expense: number; net: number};
   total: {income: number; expense: number; net: number};
   daily: CreditsFlowPoint[];
+  /**
+   * 只取「今天」时才有值：24 个小时桶。
+   * 一天只有一个点时折线看不出形状，按小时才看得出「哪几个小时在涨、哪几个在耗」。
+   * 其余时段为空数组。
+   */
+  hourly: CreditsFlowHourPoint[];
 }
 
 export interface UsageBreakdown {

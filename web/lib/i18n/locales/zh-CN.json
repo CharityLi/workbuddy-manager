@@ -225,6 +225,8 @@
     "healthSnapshot": "账号健康快照",
     "viewAllAccounts": "查看全部账号",
     "creditsFlowTitle": "积分收支",
+    "chartLine": "折线图",
+    "chartBar": "柱状图",
     "creditsFlowEmpty": "暂无收支数据",
     "creditsFlowFailed": "收支数据未能取回",
     "income": "收入",

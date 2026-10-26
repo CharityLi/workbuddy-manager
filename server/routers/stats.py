@@ -508,6 +508,27 @@ def _credit_income_by_day(since: str, realm: str | None) -> dict[str, float]:
     return {str(r['day']): float(r['income'] or 0) for r in rows if r['day']}
 
 
+def _credit_income_by_hour(day: str, realm: str | None) -> dict[int, float]:
+    """收入：`kind='credit'` 流水按本地小时聚合（`days=1` 的小时视图用）。"""
+    uids = _realm_uids(realm)
+    if uids is not None and not uids:
+        return {}
+    start = db.day_start_ts(day)
+    sql = (f"SELECT {db.hour_sql('ts')} AS bucket, COALESCE(SUM(credits),0) AS income "
+           "FROM task_logs WHERE kind = 'credit' AND ts >= ? AND ts < ?")
+    args: list = [start, start + 86400]
+    if uids is not None:
+        sql += f' AND uid IN ({",".join("?" * len(uids))})'
+        args.extend(sorted(uids))
+    sql += ' GROUP BY bucket'
+    out: dict[int, float] = {}
+    for r in db.query(sql, tuple(args)):
+        bucket = str(r['bucket'] or '')
+        if len(bucket) >= 13:
+            out[int(bucket[11:13])] = float(r['income'] or 0)
+    return out
+
+
 @router.get('/credits')
 def credits_flow(days: int = 30, realm: str | None = None,
                  user: dict = Depends(security.current_user)) -> dict:
@@ -562,6 +583,20 @@ def credits_flow(days: int = 30, realm: str | None = None,
         exp = sum(r['expense'] for r in rows)
         return {'income': inc, 'expense': exp, 'net': inc - exp}
 
+    # 今日视图按小时细化：`days=1` 时「一天」只有一个点，折线看不出形状。
+    # 只有看清一天里哪几个小时在涨、哪几个小时在耗，才对得上「今天怎么花的」。
+    hourly: list[dict] = []
+    if d == 1:
+        inc_h = _credit_income_by_hour(today, realm)
+        exp_h = {int(r['hour']): float(r['credit'] or 0) for r in db.query(
+            'SELECT hour, COALESCE(SUM(credit),0) AS credit FROM usage_hourly '
+            f'WHERE day = ?{rf} GROUP BY hour',
+            (today,) + rargs,
+        )}
+        for h in range(24):
+            inc_v, exp_v = inc_h.get(h, 0.0), exp_h.get(h, 0.0)
+            hourly.append({'hour': h, 'income': inc_v, 'expense': exp_v, 'net': inc_v - exp_v})
+
     return {
         'days': d,
         'from': daily[0]['day'] if daily else since,
@@ -570,6 +605,7 @@ def credits_flow(days: int = 30, realm: str | None = None,
         'week': _sum([r for r in daily if r['day'] >= week_from]),
         'total': _sum(daily),
         'daily': daily,
+        'hourly': hourly,
     }
 
 

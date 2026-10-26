@@ -225,6 +225,8 @@
     "healthSnapshot": "アカウント健全性スナップショット",
     "viewAllAccounts": "すべてのアカウントを表示",
     "creditsFlowTitle": "クレジット収支",
+    "chartLine": "折れ線グラフ",
+    "chartBar": "棒グラフ",
     "creditsFlowEmpty": "収支データがありません",
     "creditsFlowFailed": "収支データを取得できませんでした",
     "income": "収入",

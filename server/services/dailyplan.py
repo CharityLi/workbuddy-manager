@@ -161,7 +161,14 @@ async def run_task(task: str) -> tuple[bool, str]:
         total = out.get('total', 0)
         ok_n = out.get('succeeded', 0)
         already = out.get('already', 0)
-        return True, f'签到 {ok_n}/{total} 成功' + (f'（{already} 个今日已签）' if already else '')
+        failed = out.get('failed', 0)
+        msg = f'签到 {ok_n}/{total} 成功'
+        if already:
+            msg += f'（{already} 个今日已签）'
+        if failed:
+            # 失败数单独报出来：混在「成功」里会让用户以为全签上了
+            msg += f'，{failed} 个失败'
+        return not failed, msg
     if task == 'compensation':
         from ..routers import accounts as accounts_router  # noqa: PLC0415
         out = await accounts_router.claim_compensation_all(upstream_id=None,

@@ -225,6 +225,8 @@
     "healthSnapshot": "계정 상태 스냅샷",
     "viewAllAccounts": "전체 계정 보기",
     "creditsFlowTitle": "크레딧 수입/지출",
+    "chartLine": "꺾은선 그래프",
+    "chartBar": "막대 그래프",
     "creditsFlowEmpty": "수입/지출 데이터가 없습니다",
     "creditsFlowFailed": "수입/지출 데이터를 불러오지 못했습니다",
     "income": "수입",

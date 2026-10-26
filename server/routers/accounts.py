@@ -1231,6 +1231,11 @@ async def refresh_all_credits(
     }
 
 
+# 签到失败退避间隔（秒）：腾讯侧偶发「10001 签到失败，请稍后重试」，
+# 这类抖动重试一次多半就好；三档递增，避免同一时刻反复打同一个账号。
+_CHECKIN_RETRY_DELAYS = (5, 15, 60)
+
+
 def _checkin_semaphore() -> asyncio.Semaphore:
     """限制签到并发数：太高容易触发腾讯风控，太低又会拖到前端超时。"""
     return asyncio.Semaphore(config.CHECKIN_CONCURRENCY)
@@ -1285,17 +1290,25 @@ async def checkin_all(upstream_id: int | None = Query(None),
             return {'nickname': nickname, 'ok': True, 'already': True,
                     'code': 10001, 'message': '今日已签到，已跳过'}
 
+        payload = {
+            'access_token': token,
+            'uid': str((raw.get('account') or {}).get('uid') or uid),
+            'enterprise_id': str((raw.get('account') or {}).get('enterpriseId') or ''),
+            'domain': str(auth.get('domain') or ''),
+            'realm': auth.get('realm'),
+            'device_token': str(raw.get('device_token') or ''),
+            'proxy': str(raw.get('proxy') or ''),
+        }
         async with sem:
-            # 传完整 auth dict：billing 域要带 X-User-Id 等身份头
-            code, message = await tencent.checkin({
-                'access_token': token,
-                'uid': str((raw.get('account') or {}).get('uid') or uid),
-                'enterprise_id': str((raw.get('account') or {}).get('enterpriseId') or ''),
-                'domain': str(auth.get('domain') or ''),
-                'realm': auth.get('realm'),
-                'device_token': str(raw.get('device_token') or ''),
-                'proxy': str(raw.get('proxy') or ''),
-            }, realm_of(auth))
+            # 失败按 5s / 15s / 60s 退避重试（上游 2.10.0 #256）：腾讯侧偶发
+            # 「10001 签到失败，请稍后重试」——那是**失败**，不是「今天已签到」，
+            # 之前直接记为成功会让用户以为签到了。重试全部失败才如实记失败。
+            code, message = await tencent.checkin(payload, realm_of(auth))
+            for delay in _CHECKIN_RETRY_DELAYS:
+                if code in (0, 10001):
+                    break
+                await asyncio.sleep(delay)
+                code, message = await tencent.checkin(payload, realm_of(auth))
         ok = code in (0, 10001)
         db.add_checkin_log(uid, nickname, 'manual-batch', ok, code, message)
         return {'nickname': nickname, 'ok': ok, 'code': code, 'message': message}
@@ -1312,10 +1325,12 @@ async def checkin_all(upstream_id: int | None = Query(None),
     already = [r for r in applicable if r.get('already')]
     attempted = [r for r in applicable if not r.get('already')]
     succeeded = sum(1 for r in attempted if r['ok'])
+    failed = sum(1 for r in attempted if not r['ok'])
     return {
         'total': len(attempted),
         'succeeded': succeeded,
         'already': len(already),
+        'failed': failed,
         'skipped': len(results) - len(applicable),
         'results': list(results),
     }
