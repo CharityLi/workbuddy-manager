@@ -98,6 +98,28 @@ export function fmtCompact(n: number | null | undefined): string {
   return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
+/**
+ * Token 这类「动辄百万」的计数，按语区加中文/英文单位：
+ * zh-CN 1.2万 / 3.4亿、zh-TW 1.2萬、ja 1.2万、ko 1.2만、en 1.2K / 3.4M。
+ *
+ * 为什么不用 fmtCompact：它把单位写死成 k/M，中文界面下读成「1.2M tokens」
+ * 还得心算。这里交给 Intl 的 compact 记数法，各语区单位天然正确、不用维护单位表。
+ *
+ * 一万以下保持千分位原样——「9,820」这样的精确值比「9.8千」更有用，
+ * 也能和配额那一段逐位对齐。
+ */
+export function fmtTokenCompact(n: number | null | undefined): string {
+  if (n === null || n === undefined || !Number.isFinite(n)) return '0';
+  const abs = Math.abs(n);
+  if (abs < 10_000) return fmtNumber(n);
+  return new Intl.NumberFormat(intlLocale(), {
+    notation: 'compact',
+    // 只有千万到亿之间的那一段压掉小数：「1235万」比「1234.6万」好扫；
+    // 亿位起保留一位（6.4亿），否则 6.4 亿会被抹成 6 亿，误差太大。
+    maximumFractionDigits: abs >= 10_000_000 && abs < 100_000_000 ? 0 : 1,
+  }).format(n);
+}
+
 export function fmtLatency(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
   return `${(ms / 1000).toFixed(2)}s`;
