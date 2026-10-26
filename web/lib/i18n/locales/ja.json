@@ -1187,7 +1187,14 @@
     "upstreamLoadFailed": "上流の更新履歴を読み込めませんでした",
     "upstreamAppVersion": "上流バージョン {v}",
     "upstreamListHint": "{min} 以降の {n} 件のリリースです。バージョン名を押すと内容が開きます",
-    "localEmpty": "このビルドに未公開の変更はありません"
+    "localEmpty": "このビルドに未公開の変更はありません",
+    "briefButton": "更新を比較",
+    "briefHint": "ローカルと上流の最新版を比較し、欠けている機能と更新すべきかを一覧にします",
+    "briefTitle": "更新比較レポート",
+    "briefDesc": "このテキストは管理者や AI アシスタントにそのまま貼れます。上流にあってローカルに無いバージョン、ローカル独自のコミット、更新後に確認すべきカスタマイズ一覧が含まれます。",
+    "briefCopy": "全文をコピー",
+    "briefCopied": "コピーしました",
+    "briefClose": "閉じる"
   },
   "updatePanel": {
     "currentVersion": "現在のバージョン",

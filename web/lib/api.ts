@@ -67,6 +67,7 @@ import type {
   UsageHourPoint,
   UsagePoint,
   UpstreamLog,
+  UpgradeBrief,
   UserItem,
   Versions,
 } from './types';
@@ -775,6 +776,9 @@ export const systemApi = {
   upstreamLog: () => get<UpstreamLog>('/api/system/upstream-log'),
   /** 立刻巡检一次上游（管理员；只写本地日志，不动上游仓库） */
   checkUpstream: () => post<{ok: boolean; new: number; error?: string}>('/api/system/upstream-check', {}),
+  // 升级对比简报：force=true 会强刷 Releases 缓存（按钮传 false，避免每次都打 GitHub）
+  upgradeBrief: (force = false) =>
+    get<UpgradeBrief>(`/api/system/upgrade-brief${force ? '?force=true' : ''}`),
 };
 
 /* ── PostgreSQL 异地备份（设置 → 数据备份）────────────── */

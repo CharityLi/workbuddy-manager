@@ -1187,7 +1187,14 @@
     "upstreamLoadFailed": "读取上游更新日志失败",
     "upstreamAppVersion": "上游版本 {v}",
     "upstreamListHint": "以下是 {min} 起的 {n} 个发布版本，点版本号展开说明",
-    "localEmpty": "当前构建没有未发布的改动"
+    "localEmpty": "当前构建没有未发布的改动",
+    "briefButton": "升级对比",
+    "briefHint": "对比本地与上游最新版本，列出缺哪些功能、是否值得更新",
+    "briefTitle": "升级对比简报",
+    "briefDesc": "这段文字可以直接复制给维护者或 AI 助手：里面写着上游有本地没有的版本、本地独有的提交，以及升级后要逐条验证的定制清单。",
+    "briefCopy": "复制全文",
+    "briefCopied": "已复制",
+    "briefClose": "关闭"
   },
   "updatePanel": {
     "currentVersion": "当前版本",

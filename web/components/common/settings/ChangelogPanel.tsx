@@ -2,7 +2,9 @@
 
 import {useEffect, useState} from 'react';
 import {
+  Check,
   ChevronRight,
+  Copy,
   FileText,
   GitBranch,
   Loader2,
@@ -11,6 +13,15 @@ import {
   TriangleAlert,
 } from 'lucide-react';
 
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/animate-ui/radix/dialog';
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {systemApi} from '@/lib/api';
@@ -18,7 +29,7 @@ import {fmtDateTime} from '@/lib/format';
 import {RichText} from '@/lib/i18n/rich-text';
 import {useT} from '@/lib/i18n/provider';
 import {cn} from '@/lib/utils';
-import type {Changelog, ChangelogItem, UpstreamLog} from '@/lib/types';
+import type {Changelog, ChangelogItem, UpstreamLog, UpgradeBrief} from '@/lib/types';
 
 const REPO_URL = 'https://github.com/ithtelab/workbuddy-manager/releases';
 
@@ -318,6 +329,35 @@ function UpstreamChangelog({initial, initialError}: {initial: UpstreamLog | null
   const [error, setError] = useState(initialError);
   const [checking, setChecking] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
+  // 升级对比简报：点按钮才生成（要跑 git log/status，不预热）
+  const [brief, setBrief] = useState<UpgradeBrief | null>(null);
+  const [briefOpen, setBriefOpen] = useState(false);
+  const [briefing, setBriefing] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const runBrief = async () => {
+    setBriefing(true);
+    try {
+      const d = await systemApi.upgradeBrief();
+      setBrief(d);
+      setBriefOpen(true);
+    } catch {
+      setError(t('changelog.upstreamLoadFailed'));
+    } finally {
+      setBriefing(false);
+    }
+  };
+
+  const copyBrief = async () => {
+    if (!brief) return;
+    try {
+      await navigator.clipboard.writeText(brief.markdown);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch {
+      // 剪贴板被拒（非安全上下文）：正文本来就能手动选中复制，不额外提示
+    }
+  };
 
   const apply = (d: UpstreamLog) => {
     setData(d);
@@ -371,6 +411,21 @@ function UpstreamChangelog({initial, initialError}: {initial: UpstreamLog | null
             variant="outline"
             size="sm"
             className="h-7 gap-1.5 text-xs"
+            onClick={runBrief}
+            disabled={briefing}
+            title={t('changelog.briefHint')}
+          >
+            {briefing ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <FileText className="h-3.5 w-3.5" />
+            )}
+            {t('changelog.briefButton')}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1.5 text-xs"
             onClick={runCheck}
             disabled={checking}
           >
@@ -383,6 +438,29 @@ function UpstreamChangelog({initial, initialError}: {initial: UpstreamLog | null
           </Button>
         </div>
       </div>
+
+      <Dialog open={briefOpen} onOpenChange={setBriefOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>{t('changelog.briefTitle')}</DialogTitle>
+            <DialogDescription>{t('changelog.briefDesc')}</DialogDescription>
+          </DialogHeader>
+          <DialogBody>
+            <pre className="max-h-[58vh] overflow-auto whitespace-pre-wrap break-words rounded-[12px] border border-border bg-muted/50 p-3 font-mono text-[11px] leading-5">
+              {brief?.markdown || ''}
+            </pre>
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={copyBrief}>
+              {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              {copied ? t('changelog.briefCopied') : t('changelog.briefCopy')}
+            </Button>
+            <Button size="sm" onClick={() => setBriefOpen(false)}>
+              {t('changelog.briefClose')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* 只记录不跟随 —— 说在前面，避免被当成「自动升级开关」 */}
       <p className="rounded-[14px] border border-border bg-muted/60 px-3 py-2 text-[11px] leading-5 text-muted-foreground">

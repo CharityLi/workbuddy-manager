@@ -1187,7 +1187,14 @@
     "upstreamLoadFailed": "讀取上游更新日誌失敗",
     "upstreamAppVersion": "上游版本 {v}",
     "upstreamListHint": "以下是 {min} 起的 {n} 個發佈版本，點版本號展開說明",
-    "localEmpty": "目前建置沒有未發佈的變更"
+    "localEmpty": "目前建置沒有未發佈的變更",
+    "briefButton": "升級對比",
+    "briefHint": "對比本機與上游最新版本，列出缺哪些功能、是否值得更新",
+    "briefTitle": "升級對比簡報",
+    "briefDesc": "這段文字可以直接複製給維護者或 AI 助手：裡面寫著上游有本機沒有的版本、本機獨有的提交，以及升級後要逐條驗證的客製清單。",
+    "briefCopy": "複製全文",
+    "briefCopied": "已複製",
+    "briefClose": "關閉"
   },
   "updatePanel": {
     "currentVersion": "目前版本",

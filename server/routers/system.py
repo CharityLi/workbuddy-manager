@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from .. import config, security
 from ..iputil import client_ip
-from ..services import changelog, upstreamwatch, updater, wb2api
+from ..services import changelog, upgradebrief, upstreamwatch, updater, wb2api
 
 router = APIRouter(prefix='/api/system', tags=['system'])
 
@@ -237,6 +237,20 @@ async def check_upstream(
     是为了让 `/api/tokens` 的权限矩阵扫描能看见它）。
     """
     return await asyncio.to_thread(upstreamwatch.check, True)
+
+
+@router.get('/upgrade-brief')
+async def get_upgrade_brief(
+    force: bool = False,
+    user: dict = Depends(security.require_session_admin),
+) -> dict:
+    """升级对比简报：上游有本地没有的版本、本地独有的提交、本地定制核对清单。
+
+    只读：不 fetch（除非 `force=true` 刷 Releases 缓存）、不 checkout、不改仓库。
+    要跑 `git log` / `git status`，所以放线程里；也只对会话管理员开放——它会把
+    仓库内的提交标题、文件路径这类实现细节吐出来，属于维护者视角的信息。
+    """
+    return await asyncio.to_thread(upgradebrief.brief, force)
 
 
 @router.get('/changelog')

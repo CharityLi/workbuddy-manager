@@ -1187,7 +1187,14 @@
     "upstreamLoadFailed": "업스트림 업데이트 로그를 읽지 못했습니다",
     "upstreamAppVersion": "업스트림 버전 {v}",
     "upstreamListHint": "{min} 이후의 릴리스 {n}개입니다. 버전을 누르면 내용이 열립니다",
-    "localEmpty": "이 빌드에 아직 공개되지 않은 변경이 없습니다"
+    "localEmpty": "이 빌드에 아직 공개되지 않은 변경이 없습니다",
+    "briefButton": "업데이트 비교",
+    "briefHint": "로컬과 업스트림 최신 버전을 비교해 빠진 기능과 업데이트 필요 여부를 정리합니다",
+    "briefTitle": "업데이트 비교 브리핑",
+    "briefDesc": "이 텍스트는 관리자나 AI 어시스턴트에게 그대로 붙여넣을 수 있습니다. 업스트림에는 있고 로컬에는 없는 버전, 로컬 고유 커밋, 업데이트 후 확인해야 할 커스터마이즈 목록이 담겨 있습니다.",
+    "briefCopy": "전체 복사",
+    "briefCopied": "복사됨",
+    "briefClose": "닫기"
   },
   "updatePanel": {
     "currentVersion": "현재 버전",

@@ -1233,6 +1233,36 @@ export interface ChangelogVersion {
 }
 
 /** 上游仓库更新日志（设置 → 更新日志 → 上游）：只记录，不跟随 */
+/** 升级对比简报：上游有本地没有的版本、本地独有的提交、本地定制核对清单 */
+export interface UpgradeBrief {
+  ok: boolean;
+  repo: string;
+  /** 本机版本（去掉 v 前缀，如 2.9.0） */
+  local_version: string;
+  /** 上游最新版本（去掉 v 前缀） */
+  latest: string;
+  fetched_at: number;
+  /** 「上游有、本地没有」的版本（最多 12 个） */
+  missing: {
+    version: string;
+    date: string | null;
+    /** 每版摘出的要点（小节名：正文…） */
+    points: string[];
+  }[];
+  /** 上游有本地没有的版本总数（可能大于 missing 长度） */
+  missing_count: number;
+  /** 本地超出最新 tag 的提交（oneline） */
+  local_commits: string[];
+  /** 比对用的本地基准 tag（空串=本地没有版本 tag） */
+  base_tag: string;
+  /** 未提交改动文件数 */
+  dirty_count: number;
+  /** 本地定制核对清单（docs/local-customizations.md 的二级标题） */
+  checklist: string[];
+  /** 组装好的一整段 markdown，可直接复制给维护者/AI */
+  markdown: string;
+}
+
 export interface UpstreamLog {
   /** 有没有拿到版本列表（缓存为空且联网失败时为 false） */
   available: boolean;

@@ -1214,7 +1214,14 @@
     "upstreamLoadFailed": "Failed to read the upstream changelog",
     "upstreamAppVersion": "Upstream version {v}",
     "upstreamListHint": "{n} releases since {min}; click a version to expand it",
-    "localEmpty": "No unreleased changes in this build"
+    "localEmpty": "No unreleased changes in this build",
+    "briefButton": "Compare",
+    "briefHint": "Compare this install with the latest upstream release: what is missing, and is it worth updating",
+    "briefTitle": "Update comparison brief",
+    "briefDesc": "This text can be pasted straight to a maintainer or an AI assistant: it lists releases upstream has and you do not, commits unique to this install, and the customization checklist to verify after updating.",
+    "briefCopy": "Copy all",
+    "briefCopied": "Copied",
+    "briefClose": "Close"
   },
   "updatePanel": {
     "currentVersion": "Current version",
