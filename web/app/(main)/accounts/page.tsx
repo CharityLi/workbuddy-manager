@@ -798,7 +798,7 @@ export default function AccountsPage() {
           ? 'text-amber-600 dark:text-amber-400'
           : 'text-foreground';
     return (
-      <span className="inline-flex items-center gap-1.5">
+      <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-1">
         <span className={`text-xs font-medium tabular-nums ${tone}`} title={t('accounts.creditsTitle')}>
           {fmtNumber(value)}
         </span>
@@ -884,9 +884,42 @@ export default function AccountsPage() {
     );
   }
 
+  /**
+   * 今日消耗积分（上游用量台账）。
+   *
+   * 与左边的「积分」列是两个口径：「积分」= 还剩多少，「今日消耗」= 今天花掉多少。
+   * 数据来自上游 data/usage.json 的逐请求 usage.credit（唯一带 uid 维度的扣费来源），
+   * 所以**不会被签到/领奖的收入抵消**，也不会因为余额有 60s 缓存而滞后。
+   * `null` = 台账读不到 → 显示「—」，不能显示 0：那会把「不知道」说成「没花钱」。
+   */
+  function renderTodayCredit(a: Account) {
+    const value = a.today_credit;
+    if (value === null || value === undefined) {
+      return (
+        <span className="text-xs text-muted-foreground" title={t('accounts.todayCreditNone')}>
+          —
+        </span>
+      );
+    }
+    return (
+      <span
+        className={
+          'text-xs tabular-nums ' +
+          (value > 0 ? 'text-foreground' : 'text-muted-foreground')
+        }
+        title={t('accounts.todayCreditTitle', {
+          requests: fmtNumber(a.today_requests ?? 0),
+          credit: fmtNumber(value),
+        })}
+      >
+        {fmtNumber(value)}
+      </span>
+    );
+  }
+
   function renderExpiry(a: Account) {
     if (a.expires_at <= 0) {
-      return <div className="w-[150px] text-[11px] text-muted-foreground">{t('metric.unknown')}</div>;
+      return <div className="w-full text-[11px] text-muted-foreground">{t('metric.unknown')}</div>;
     }
     const pct = expiryBarPercent(a.remain_seconds, a.ttl_seconds);
     const vis = expiryVisual(a.remain_seconds);
@@ -895,7 +928,7 @@ export default function AccountsPage() {
     // 补一行签发时间（≈ 最近一次刷新）才能区分——后者是保活没覆盖到的隐患账号。
     const issued = a.issued_at ?? null;
     return (
-      <div className="w-[150px]">
+      <div className="w-full">
         <div className={`mb-1 text-[11px] font-medium tabular-nums ${vis.textClass}`}>
           {fmtRemain(a.remain_seconds)}
         </div>
@@ -949,11 +982,11 @@ export default function AccountsPage() {
       rateLimitedModels(a).length > 0 ||
       (a.manual_disabled === true &&
         Boolean(a.manual_reason && a.manual_reason.startsWith('手动冷却')));
-    // 手机卡片宽度只有 260–300px，必须换行（否则最右侧的停用/删除被裁掉）；
-    // 桌面表格空间足够，固定一行 —— 否则窄的「操作」列会把图标挤成两行
-    // （issue #151 的后续反馈）。表格容器自身可横向滚动，md 以上不再换行。
+    // 两种视图都必须换行：手机卡片只有 260–300px（不换行最右侧的停用/删除会被裁掉），
+    // 桌面表格自 2026-10-26 起是 table-fixed、不再横向滚动 ⇒ 操作列宽度由列宽决定，
+    // 一条不换行一样会把图标挤出格子（issue #151 的后续反馈）。
     return (
-      <div className="flex flex-wrap justify-end gap-1 md:flex-nowrap">
+      <div className="flex flex-wrap justify-end gap-1">
         {/* 备注（issue #67）：只动本端库里的一行文本，不碰上游、不重启容器，
             所以放在最前——它是最轻的动作。任何状态下的账号都能写备注：
             停用的号恰恰更容易忘了它是谁。 */}
@@ -1422,7 +1455,7 @@ export default function AccountsPage() {
       <section className="overflow-hidden rounded-[20px] bg-muted">
         {/* 手机端：卡片列表。表格 6 列在窄屏需要横向滚动，读一行要来回拖，
             改为纵向卡片后信息一眼可见 */}
-        <div className="divide-y divide-border/40 md:hidden">
+        <div className="divide-y divide-border/40 lg:hidden">
           {paged.rows.map((a) => (
             <div key={a.file} className="space-y-2.5 px-3.5 py-3">
               <div className="flex items-center justify-between gap-2">
@@ -1450,12 +1483,18 @@ export default function AccountsPage() {
                 </div>
               </div>
 
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex shrink-0 items-center gap-1.5">
-                  <Coins className="h-3.5 w-3.5 text-muted-foreground" />
+              {/* 积分 + 今日消耗在左、有效期在右。左组允许换行：手机卡片只有
+                  260–300px，多了「今日消耗」后不换行会把右边的有效期挤成三行。 */}
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                  <Coins className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   {renderCredits(a)}
+                  <span className="whitespace-nowrap text-[11px] text-muted-foreground">
+                    {t('accounts.todayCreditLine')}
+                  </span>
+                  {renderTodayCredit(a)}
                 </div>
-                {renderExpiry(a)}
+                <div className="w-[104px] shrink-0">{renderExpiry(a)}</div>
               </div>
 
               {hasProxyUi && (
@@ -1466,18 +1505,24 @@ export default function AccountsPage() {
           ))}
         </div>
 
-        {/* 桌面端：表格 */}
-        <div className="hidden md:block">
-        <Table>
+        {/* 桌面端：表格
+            ★ 2026-10-26：改成 table-fixed + 百分比列宽。
+            原来是自动布局：各列按内容撑开（UID 完整 36 字符占 264px、操作列 8 个
+            图标按钮 not-wrap 占 372px），合计 ~1458px ⇒ 容器内部横向滚动条（用户
+            看到的「横一条」），窗口越窄越明显，且多一列就再宽一截。
+            现在列宽由百分比决定、内容按列宽截断/换行，**不再有横向滚动**。 */}
+        <div className="hidden lg:block">
+        <Table className="table-fixed">
           <TableHeader>
             <TableRow className="border-b border-border/60 hover:bg-transparent">
-              <TableHead className="pl-4 text-[11px] text-muted-foreground">{t('accounts.colNickname')}</TableHead>
-              <TableHead className="text-[11px] text-muted-foreground">UID</TableHead>
-              <TableHead className="text-[11px] text-muted-foreground">{t('accounts.colStatus')}</TableHead>
-              <TableHead className="text-[11px] text-muted-foreground">{t('metric.credits')}</TableHead>
-              <TableHead className="text-[11px] text-muted-foreground">{t('accounts.colExpiry')}</TableHead>
-              {hasProxyUi && <TableHead className="text-[11px] text-muted-foreground">{t('accounts.proxyLine')}</TableHead>}
-              {isAdmin && <TableHead className="whitespace-nowrap pr-4 text-right text-[11px] text-muted-foreground">{t('accounts.colActions')}</TableHead>}
+              <TableHead className="w-[19%] pl-4 text-[11px] text-muted-foreground">{t('accounts.colNickname')}</TableHead>
+              <TableHead className="w-[12%] text-[11px] text-muted-foreground">UID</TableHead>
+              <TableHead className="w-[15%] text-[11px] text-muted-foreground">{t('accounts.colStatus')}</TableHead>
+              <TableHead className="w-[12%] text-[11px] text-muted-foreground">{t('metric.credits')}</TableHead>
+              <TableHead className="w-[10%] text-[11px] text-muted-foreground">{t('accounts.colTodayCredit')}</TableHead>
+              <TableHead className="w-[13%] text-[11px] text-muted-foreground">{t('accounts.colExpiry')}</TableHead>
+              {hasProxyUi && <TableHead className="w-[8%] text-[11px] text-muted-foreground">{t('accounts.proxyLine')}</TableHead>}
+              {isAdmin && <TableHead className="pr-4 text-right text-[11px] text-muted-foreground">{t('accounts.colActions')}</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -1509,17 +1554,27 @@ export default function AccountsPage() {
                     </Badge>
                   </div>
                 </TableCell>
-                <TableCell className="font-mono text-xs text-muted-foreground">{a.uid}</TableCell>
+                <TableCell className="text-xs text-muted-foreground">
+                  {/* 完整 UID 是 36 字符（占 264px，是横向滚动条的最大来源）。
+                      表格里只显示前 8 位 + 悬停看全量 —— 需要复制时前端别处仍可取。 */}
+                  <span className="block truncate font-mono" title={a.uid}>
+                    {a.uid.length > 8 ? `${a.uid.slice(0, 8)}…` : a.uid}
+                  </span>
+                </TableCell>
                 <TableCell>
-                  <div className="flex flex-wrap items-center gap-1.5">
+                  {/* table-fixed 下这一列宽度固定，而「模型受限」徽章里带模型名
+                      （`global:` 前缀的型号很长）⇒ 必须允许子元素截断，否则徽章会
+                      溢出到「积分余额」列。 */}
+                  <div className="flex min-w-0 flex-wrap items-center gap-1.5 [&>*]:max-w-full [&>*]:truncate">
                     {renderStatus(a)}
                     {renderModelLimit(a)}
                   </div>
                 </TableCell>
                 <TableCell>{renderCredits(a)}</TableCell>
+                <TableCell>{renderTodayCredit(a)}</TableCell>
                 <TableCell>{renderExpiry(a)}</TableCell>
                 {hasProxyUi && <TableCell>{renderProxy(a)}</TableCell>}
-                {isAdmin && <TableCell className="whitespace-nowrap pr-4">{renderActions(a)}</TableCell>}
+                {isAdmin && <TableCell className="pr-4">{renderActions(a)}</TableCell>}
               </TableRow>
             ))}
           </TableBody>

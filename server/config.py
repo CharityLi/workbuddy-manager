@@ -55,6 +55,13 @@ WB2API_STOP_SCRIPT = Path(_env(
 WB2API_LOG_FILE = Path(_env(
     'WB2API_LOG_FILE', str(UPSTREAM_DIR / 'data' / 'server.err.log'),
 ))
+# 上游用量台账（`internal/usage` 落盘的 data/usage.json）。
+# 账号页的「今日消耗积分」只能从这里取：它是本机唯一带 uid 维度的扣费记录
+# （为什么不用 /status 或 request_logs，见 server/services/usage_ledger.py 顶部）。
+# 缺省 = 网关日志同目录的 usage.json，与本机启动方式无关。
+WB2API_USAGE_FILE = Path(_env(
+    'WB2API_USAGE_FILE', str(WB2API_LOG_FILE.parent / 'usage.json'),
+))
 
 # 本管理端数据
 DATA_DIR = Path(_env('WB_DATA_DIR', str(ROOT / 'data')))

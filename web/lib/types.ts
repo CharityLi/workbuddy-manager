@@ -25,6 +25,17 @@ export interface Account {
   remain_seconds: number;
   /** 当前可花费积分余额（上游聚合套餐剩余额度），null 表示尚未同步 */
   credits?: number | null;
+  /**
+   * 今日该账号**已扣掉**的积分（上游用量台账 data/usage.json 的逐请求
+   * `usage.credit` 按 uid 汇总）。
+   *
+   * 与 `credits` 是两个口径，别混：`credits` 是「还剩多少」，本字段是「今天花掉
+   * 多少」。`null` = 台账读不到（界面显示「—」），`0` = 今天确实没扣过费。
+   * 详见 server/services/usage_ledger.py。
+   */
+  today_credit?: number | null;
+  /** 今日该账号的请求数（与 today_credit 同源，用于解释「扣了多少 / 跑了多少次」） */
+  today_requests?: number | null;
   /** 来自 workbuddy2api /status 的运行时字段，可能为空 */
   healthy?: boolean | null;
   disabled?: boolean | null;
@@ -144,6 +155,10 @@ export interface AccountsResponse {
   auth_dir?: string;
   /** 该分组能否在面板管理账号（= 配置了本地账号目录） */
   manageable?: boolean;
+  /** 全账号今日消耗积分合计；null = 用量台账不可用 */
+  today_credit_total?: number | null;
+  /** 上述合计对应的日期（本机时区，YYYY-MM-DD）；null = 台账不可用 */
+  today_credit_day?: string | null;
 }
 
 /**

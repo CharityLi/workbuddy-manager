@@ -18,7 +18,7 @@ from .. import config, db, security, upstreamsvc
 from ..iputil import client_ip
 from ..services import (
     credits as creditsvc, dailyplan, modelcatalog, reload, renew, tasklog, taskrun,
-    tencent, wb2api,
+    tencent, usage_ledger as usageledger, wb2api,
 )
 from ..services.realm import realm_of, supports_checkin
 
@@ -506,10 +506,29 @@ async def list_accounts(upstream_id: int | None = Query(None),
         display = a['note'] or raw_name or uid[:8]
         a['display_name'] = display
         a['nickname'] = display
+    # 今日消耗积分：来自上游用量台账（唯一带 uid 维度的扣费来源，见
+    # services/usage_ledger 顶部说明）。**读不到 ≠ 没消耗**：台账缺失时给 None，
+    # 前端显示「—」；`0` 才是「今天确实没扣过费」。今日请求数一并带回，让界面
+    # 能在 tooltip 里说清「扣了多少 / 跑了多少次」，避免被当成实时余额差。
+    today = usageledger.today_usage()
+    for a in accounts:
+        uid = str(a.get('uid') or '')
+        if today is None:
+            a['today_credit'] = None
+            a['today_requests'] = None
+        else:
+            a['today_credit'] = round(today['credits'].get(uid, 0.0), 2)
+            a['today_requests'] = int(today['requests'].get(uid, 0))
     synced = sum(1 for a in accounts if a.get('credits') is not None)
+    # 合计按**当前列表**求和，不取台账全局 total：多分组时台账是所有分组的总和，
+    # 在某个分组的页签上显示别组的消耗只会让人以为「这个组今天花了这么多」。
+    group_total = None if today is None else round(
+        sum(float(a.get('today_credit') or 0.0) for a in accounts), 2)
     return {
         'total': len(accounts),
         'accounts': accounts,
+        'today_credit_total': group_total,
+        'today_credit_day': None if today is None else today['day'],
         'pool_synced': synced,
         'pool_available': bool(status.get('connected')),
         # 分组上下文：前端据此标注「本列表来自哪个分组」，并决定能否在这里
