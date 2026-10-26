@@ -1,13 +1,17 @@
 """上游任务日志解析的回归测试。
 
-这些日志行来自真实上游源码（travel.go / scheduler.go）的 log.Printf，
-容器里带 docker --timestamps 前缀。解析必须准确提取类型、账号与积分，
-否则界面上要么看不到收益，要么把跳过当成功。
+这些日志行来自真实上游源码（travel.go / scheduler.go）的 log.Printf。
+取日志有两种部署：容器里带 docker --timestamps 前缀；宿主机原生进程
+（launchd 重定向）只有 Go 自己的 `YYYY/MM/DD HH:MM:SS`。两种都必须解析出
+真实时间——否则 ts=0 会让整类任务落到任何日期窗口之外，界面上一片空白。
 """
 from __future__ import annotations
 
+import os
 import sys
+import time
 import unittest
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -290,11 +294,60 @@ class ParseTaskLines(unittest.TestCase):
         self.assertEqual(ev['ts'], 1789148624)
 
     def test_timestamp_missing_still_parses(self) -> None:
-        """没有 docker 前缀（直接跑脚本）时也应能解析，时间留 0 由上层兜底。"""
+        """完全没有时间前缀（直接跑脚本）时也应能解析，时间留 0。"""
         ev = tasklog.parse_line('travel 89374120: claim ok record=1 reward=50')
         assert ev is not None
         self.assertEqual(ev['ts'], 0)
         self.assertEqual(ev['credits'], 50)
+
+    def test_native_go_log_prefix_parsed(self) -> None:
+        """native 模式（launchd 重定向）只有 Go 的 `YYYY/MM/DD HH:MM:SS` 前缀。
+
+        这是 2026-10-26 的事故点：只认 docker 前缀 → ts=0 → 整类任务
+        被 `ts >= now - days*86400` 过滤掉，界面上六类记录全空。
+        """
+        ev = tasklog.parse_line(
+            '2026/10/26 10:00:09 travel L.(a23b6de8): claim ok record=29812479 reward=10'
+        )
+        assert ev is not None
+        self.assertEqual(ev['kind'], 'travel')
+        self.assertEqual(ev['credits'], 10)
+        # 前缀是本地时间（Go LstdFlags），必须按本机时区解释
+        self.assertEqual(ev['ts'], int(datetime(2026, 10, 26, 10, 0, 9).timestamp()))
+
+    def test_native_prefix_keeps_daily_lines_distinct(self) -> None:
+        """ts=0 曾让「今日已签到」这类每日相同文案跨天撞成同一个 dedup_key。"""
+        a = tasklog.parse_line('2026/10/25 10:00:00 checkin 91203877: 今日已签到')
+        b = tasklog.parse_line('2026/10/26 10:00:00 checkin 91203877: 今日已签到')
+        assert a and b
+        self.assertNotEqual(a['dedup_key'], b['dedup_key'])
+
+    def test_blackcat_line_maps_to_cat(self) -> None:
+        """夜猫在上游调度器里打的是 `blackcat`，界面类型是 `cat`。
+
+        真实行：2026/10/23 23:00:01 blackcat 兰亭序(be1c1388): upstream client (http 401)
+        """
+        ev = tasklog.parse_line(
+            '2026/10/23 23:00:01 blackcat 兰亭序(be1c1388): 完成 3 次夜间对话'
+        )
+        assert ev is not None
+        self.assertEqual(ev['kind'], 'cat')
+        self.assertEqual(ev['uid'], 'be1c1388')
+        self.assertIn(ev['kind'], tasklog.KIND_LABELS)
+
+    def test_blackcat_window_skip_line_is_ignored(self) -> None:
+        """`blackcat: 当前不在窗口，跳过` 没有账号标签，不该被当成一条记录。"""
+        self.assertIsNone(tasklog.parse_line(
+            '2026/10/23 12:00:00 blackcat: 当前不在 23:00–08:00 计数窗口，跳过'
+        ))
+
+    def test_native_prefix_does_not_swallow_other_lines(self) -> None:
+        """带原生前缀的非任务行仍需返回 None（否则采集会写入垃圾记录）。"""
+        for line in (
+            '2026/10/26 12:51:58 WARN: [server] cache miss: model=x prompt=1',
+            '2026/10/26 02:30:08 workbuddy2api listening on 0.0.0.0:7863',
+        ):
+            self.assertIsNone(tasklog.parse_line(line), line)
 
     def test_dedup_key_is_stable_and_unique(self) -> None:
         line = f'{DOCKER}travel 89374120: claim ok record=1 reward=50'
@@ -642,6 +695,60 @@ class ScriptStdoutNotInContainerLogTest(unittest.TestCase):
                 tasklog.parse_line(f'{DOCKER}{line}'),
                 f'该形态不应出现在日志流里，却解析出了内容：{line}',
             )
+
+
+class WrongLogFileHint(unittest.TestCase):
+    """采集器要能自己指出「配错日志文件」，而不是安静地一条都不采。
+
+    2026-10-26 的事故：`WB2API_LOG_FILE` 指向 02:30 就停更的 data/wb2api.log，
+    同目录 data/gateway.err.log 才是 launchd 在写的那份。采集器 `error` 为空、
+    `parsed` 也有值，界面因此六类任务全空而无人察觉。
+    """
+
+    def setUp(self) -> None:
+        import tempfile
+
+        from server import config
+
+        self._tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self._tmp.name)
+        self._orig = (config.WB2API_MODE, config.WB2API_LOG_FILE)
+        config.WB2API_MODE = 'native'
+
+    def tearDown(self) -> None:
+        from server import config
+
+        config.WB2API_MODE, config.WB2API_LOG_FILE = self._orig
+        self._tmp.cleanup()
+
+    def _touch(self, name: str, age_seconds: int) -> Path:
+        p = self.dir / name
+        p.write_text('x\n', encoding='utf-8')
+        os.utime(p, (time.time() - age_seconds, time.time() - age_seconds))
+        return p
+
+    def test_silent_when_configured_file_is_the_live_one(self) -> None:
+        """正常安静期（凌晨没有任务行）不能被误报。"""
+        from server import config
+
+        config.WB2API_LOG_FILE = self._touch('live.log', 3 * 3600)
+        self._touch('old.log', 30 * 3600)
+        self.assertEqual(tasklog._wrong_log_file_hint(), '')
+
+    def test_warns_when_a_peer_log_is_clearly_newer(self) -> None:
+        from server import config
+
+        config.WB2API_LOG_FILE = self._touch('wb2api.log', 11 * 3600)
+        self._touch('gateway.err.log', 60)
+        hint = tasklog._wrong_log_file_hint()
+        self.assertIn('gateway.err.log', hint)
+        self.assertIn('wb2api.log', hint)
+
+    def test_warns_when_configured_file_is_missing(self) -> None:
+        from server import config
+
+        config.WB2API_LOG_FILE = self.dir / 'nope.log'
+        self.assertIn('不存在', tasklog._wrong_log_file_hint())
 
 
 if __name__ == '__main__':

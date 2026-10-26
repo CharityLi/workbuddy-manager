@@ -21,14 +21,26 @@ import hashlib
 import re
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
-from .. import db
+from .. import config, db
 from . import wb2api
 
 # docker --timestamps 前缀
 _DOCKER_TS = re.compile(r'^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)\s+(.*)$', re.S)
 
-_KINDS = 'travel|activity|checkin|keepalive|user-resource'
+# 原生模式（宿主机进程 + launchd 重定向）下 Go `log.Printf` 自带的前缀：
+#     2026/10/26 10:00:09 travel L.(a23b6de8): claim ok record=... reward=10
+#
+# 为什么必须认它：native 模式没有 docker 在前面加 RFC3339，只认 `_DOCKER_TS`
+# 会让每一行的时间都落成 0，而后果是双重的——`list_task_logs` 按
+# `ts >= now - days*86400` 过滤，ts=0 直接落在任何查询窗口外（界面全空）；
+# 而 `dedup_key = sha1(ts|kind|uid|message)` 里含 ts，0 又让「今天已签到」这类
+# 每日重复文案跨天撞成同一个键，被 INSERT OR IGNORE 永久压成一条。
+# 上游日志前缀是**本地时区**（Go 的 LstdFlags 用 Local），故不能按 UTC 解析。
+_NATIVE_TS = re.compile(r'^(\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2})\s+(.*)$', re.S)
+
+_KINDS = 'travel|activity|checkin|keepalive|user-resource|blackcat'
 
 # 账号 uid 的形态：字母数字（允许 - _），长度 >= 6。
 _UID_SHAPE = re.compile(r'^[0-9A-Za-z_-]{6,64}$')
@@ -139,10 +151,19 @@ KIND_LABELS = {
 # 明确表示「什么都没做，也不算失败」的前缀
 _SKIP_MARKERS = ('skip', 'skipped')
 
+# 上游 kind → 我们界面上的 kind。
+#
+# 夜猫（23:00–08:00 补对话）在上游调度器里打的是 `blackcat`：
+#     2026/10/23 23:00:01 blackcat 兰亭序(be1c1388): upstream client (http 401): <html>
+# 而界面类型名与库里历史数据都用 `cat`（「夜猫任务」），所以在这里归一。
+# 不归一的话这些行日期时间都对、结构也对，却因为 kind 不在白名单里直接丢弃。
+_KIND_ALIASES = {'blackcat': 'cat'}
+
 _POLL_SECONDS = 45
 
 
 def _event(ts: int, kind: str, uid: str, level: str, credits: int, message: str) -> dict:
+    kind = _KIND_ALIASES.get(kind, kind)
     return {
         'ts': ts,
         'uid': uid,
@@ -309,7 +330,12 @@ def parse_line(line: str) -> dict | None:
         ts = _iso_to_epoch(m_ts.group(1))
         body = m_ts.group(2)
     else:
-        body = raw
+        m_native = _NATIVE_TS.match(raw)
+        if m_native:
+            ts = _go_log_epoch(m_native.group(1))
+            body = m_native.group(2)
+        else:
+            body = raw
 
     # 脚本类任务（开学季 / 夜猫）：`<kind>: ok (...)` 与 `WARN: <kind> (...): err`
     # 先判——它们的 kind 不在 _KINDS 里，不会被下面的形态误吞；
@@ -381,6 +407,20 @@ def _iso_to_epoch(s: str) -> int:
         return 0
 
 
+def _go_log_epoch(s: str) -> int:
+    """把 Go `log.Printf` 的 `YYYY/MM/DD HH:MM:SS` 前缀转成 epoch。
+
+    前缀是**本地时间**（Go 的默认 LstdFlags 不写时区），所以 naive datetime 的
+    `.timestamp()` 正好按本机时区解释——不要在这里替换成 UTC，否则会整体偏移
+    一个时区，把早上的任务算到前一天。
+    """
+    try:
+        dt = datetime.strptime(s.strip(), '%Y/%m/%d %H:%M:%S')
+        return int(dt.timestamp())
+    except Exception:  # noqa: BLE001
+        return 0
+
+
 def parse_lines(lines: list[str]) -> list[dict]:
     out: list[dict] = []
     for ln in lines:
@@ -391,7 +431,12 @@ def parse_lines(lines: list[str]) -> list[dict]:
 
 
 def strip_docker_ts(line: str) -> str:
-    """去掉 docker --timestamps 加的时间前缀，只留应用自己的日志内容。"""
+    """去掉 docker --timestamps 加的时间前缀，只留应用自己的日志内容。
+
+    **只剥 docker 那一层**：native 模式下没有外层前缀，行首的
+    `2026/10/26 10:00:09` 就是上游自己打的、也是唯一的时间信息，
+    原始日志页要保留它才看得懂先后顺序。
+    """
     m = _DOCKER_TS.match((line or '').rstrip('\r\n'))
     return m.group(2) if m else line
 
@@ -537,7 +582,7 @@ def translate_message(message: str) -> str:
 
 # ── 后台采集 ─────────────────────────────────────────────
 _collector: asyncio.Task | None = None
-_last: dict = {'at': 0, 'added': 0, 'scanned': 0, 'error': ''}
+_last: dict = {'at': 0, 'parsed': 0, 'added': 0, 'log': '', 'log_age': None, 'error': ''}
 
 
 def state() -> dict:
@@ -547,6 +592,55 @@ def state() -> dict:
 # 每次回看的日志行数：上游会为每个请求打日志，行数消耗很快，
 # 太小可能在两次轮询之间漏掉任务行；这里取一个明显大于 45 秒产出量的值。
 TAIL_LINES = 3000
+
+# 2026-10-26 的故障是静默发生的：采集器 `error` 为空、`parsed` 也有值，读的
+# 却是 02:30 就停更的旧文件，于是六类任务记录整类消失而没人发现。这里把它
+# 打破——但**不能用「文件多久没更新」当判据**：上游只在任务/告警时写 stderr，
+# 凌晨 01:00（growth）到 10:00（checkin）之间本来就安静 9 小时，按分钟判会
+# 天天误报。真正可靠的信号是**同目录里有别的 .log 正在被写、而配置这份明显更旧**，
+# 那才是「配错了路径」的形状。
+FRESH_PEER_SECONDS = 1800      # 兄弟文件 30 分钟内写过 = 它才是活的那份
+PEER_NEWER_SECONDS = 3600      # 配置的文件比它旧 1 小时以上 = 可疑
+
+
+def _log_file_age() -> int | None:
+    """native 模式下配置的日志文件有多少秒没更新；docker 模式或读不到返回 None。"""
+    if config.WB2API_MODE != 'native':
+        return None
+    try:
+        return max(0, int(time.time() - config.WB2API_LOG_FILE.stat().st_mtime))
+    except OSError:
+        return None
+
+
+def _wrong_log_file_hint() -> str:
+    """配置的日志文件像是错的（同目录有更活的日志）时返回提示，否则返回空串。"""
+    if config.WB2API_MODE != 'native':
+        return ''
+    cur = config.WB2API_LOG_FILE
+    try:
+        mtime = cur.stat().st_mtime
+    except OSError:
+        return f'日志文件不存在：{cur}（任务记录会整类缺失）'
+    now = time.time()
+    fresher: tuple[Path, float] | None = None
+    for peer in cur.parent.glob('*.log'):
+        if peer == cur:
+            continue
+        try:
+            pm = peer.stat().st_mtime
+        except OSError:
+            continue
+        if now - pm > FRESH_PEER_SECONDS or pm - mtime < PEER_NEWER_SECONDS:
+            continue
+        if fresher is None or pm > fresher[1]:
+            fresher = (peer, pm)
+    if fresher is None:
+        return ''
+    return (
+        f'配置的日志文件 {cur.name} 比同目录 {fresher[0].name} 旧 '
+        f'{int((fresher[1] - mtime) // 60)} 分钟，可能是配错了路径：任务记录会整类缺失'
+    )
 
 
 async def _collect_once(limit: int = TAIL_LINES) -> tuple[int, int]:
@@ -563,11 +657,14 @@ async def _loop() -> None:
     while True:
         try:
             parsed, added = await _collect_once()
+            hint = _wrong_log_file_hint()
             _last.update({
                 'at': int(time.time()),
                 'parsed': parsed,
                 'added': added,
-                'error': '',
+                'log': str(config.WB2API_LOG_FILE) if config.WB2API_MODE == 'native' else '',
+                'log_age': _log_file_age(),
+                'error': hint,
             })
         except Exception as exc:  # noqa: BLE001
             _last.update({'at': int(time.time()), 'error': str(exc)[:200]})
