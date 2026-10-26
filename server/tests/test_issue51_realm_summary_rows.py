@@ -100,7 +100,8 @@ class CheckinLogsRealmViewTest(unittest.TestCase):
              mock.patch.object(db, 'count_task_logs',
                                lambda uid=None, kind=None, days=None: len(auto)), \
              mock.patch.object(accounts, '_realm_uid_filter', lambda r: (REALM_MAP if r else None)), \
-             mock.patch.object(accounts, '_nickname_resolver', lambda: (lambda uid: '')):
+             mock.patch.object(accounts, '_account_resolver',
+                               lambda: (lambda uid: '', lambda uid: '')):
             return accounts.checkin_logs(limit=20, realm=realm, user={'role': 'admin'})
 
     def test_summary_row_visible_in_both_realm_views(self) -> None:
@@ -161,7 +162,8 @@ class CheckinLogsRealmViewTest(unittest.TestCase):
              mock.patch.object(db, 'list_task_logs', lambda **k: []), \
              mock.patch.object(db, 'count_task_logs', lambda **k: 0), \
              mock.patch.object(accounts, '_realm_uid_filter', lambda r: (REALM_MAP if r else None)), \
-             mock.patch.object(accounts, '_nickname_resolver', lambda: (lambda uid: '')):
+             mock.patch.object(accounts, '_account_resolver',
+                               lambda: (lambda uid: '', lambda uid: '')):
             accounts.checkin_logs(limit=20, realm='cn', user={'role': 'admin'})
             cn_window = seen[-1]
             seen.clear()

@@ -52,8 +52,9 @@ class MergedCheckinLogs(unittest.TestCase):
         """直接调路由函数（绕开鉴权依赖）。"""
         params = {'limit': 200, 'uid': None, 'offset': 0, 'days': 7, 'user': {'username': 'admin'}}
         params.update(kw)
-        with mock.patch.object(accounts_router, '_nickname_resolver',
-                               return_value=lambda uid: ''):
+        # 解析器现在返回 (昵称, 完整 uid) 两个函数，见 accounts._account_resolver
+        with mock.patch.object(accounts_router, '_account_resolver',
+                               return_value=(lambda uid: '', lambda uid: '')):
             return accounts_router.checkin_logs(**params)
 
     def test_auto_checkin_appears_in_checkin_logs(self) -> None:

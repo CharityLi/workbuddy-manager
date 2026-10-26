@@ -489,7 +489,12 @@ class DbOpenFailureMessageTest(unittest.TestCase):
         直接抛 OperationalError 的话，用户看到的还是那句无信息量的原文。
         """
         from server import db
-        with mock.patch.object(db.sqlite3, 'connect',
+        # `_conn` 是模块级缓存：前面任何一个用例留下打开着的连接，connect()
+        # 就直接返回它、根本不会走到 sqlite3.connect ⇒ 这条断言变成
+        # 「RuntimeError not raised」。本用例验证的是**打开失败**的路径，
+        # 所以进来先把缓存清空（patch 而不是赋值，退出时原样还回去）。
+        with mock.patch.object(db, '_conn', None), \
+             mock.patch.object(db.sqlite3, 'connect',
                                side_effect=sqlite3.OperationalError('unable to open database file')):
             with self.assertRaises(RuntimeError) as ctx:
                 db.connect()
