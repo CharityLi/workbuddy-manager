@@ -1158,7 +1158,25 @@
     "sectionFixed": "수정",
     "sectionImproved": "개선",
     "sectionNotes": "설명",
-    "sectionPlanned": "예정"
+    "sectionPlanned": "예정",
+    "tabLocal": "로컬 업데이트 로그",
+    "tabUpstream": "업스트림 업데이트",
+    "upstreamTitle": "업스트림 저장소 업데이트 로그",
+    "upstreamRepo": "업스트림 저장소",
+    "upstreamCheckedAt": "마지막 확인: {t}",
+    "upstreamNeverChecked": "아직 확인한 적 없음",
+    "upstreamSchedule": "매일 {hour}:00 자동 확인",
+    "upstreamNever": "기록만 하고 따라가지 않습니다: 업스트림에 있지만 로컬에 없는 커밋만 기록하며, 자동 업그레이드나 업스트림 저장소 변경은 하지 않습니다.",
+    "upstreamRemoteHead": "업스트림 최신",
+    "upstreamLocalHead": "로컬 업스트림 버전",
+    "upstreamBehind": "업스트림에 로컬이 아직 따라가지 않은 커밋이 있습니다",
+    "upstreamSynced": "로컬이 업스트림 최신을 포함합니다",
+    "upstreamCheckNow": "지금 확인",
+    "upstreamChecking": "확인 중…",
+    "upstreamCheckFailed": "확인 실패: {err}",
+    "upstreamEmpty": "아직 기록이 없습니다. 정해진 시각에 자동 확인하며, 위의 \"지금 확인\"도 쓸 수 있습니다.",
+    "upstreamLoadFailed": "업스트림 업데이트 로그를 읽지 못했습니다",
+    "upstreamAppVersion": "업스트림 버전 {v}"
   },
   "updatePanel": {
     "currentVersion": "현재 버전",
@@ -1797,7 +1815,8 @@
     "账号最短间隔不能大于最长间隔": "최소 계정 간격은 최대 계정 간격을 초과할 수 없습니다",
     "秒": "초",
     "分钟": "분",
-    "请求上限（旧版上游）": "요청 한도(구버전 업스트림)"
+    "请求上限（旧版上游）": "요청 한도(구버전 업스트림)",
+    "仅管理员可手动巡检上游": "업스트림 수동 점검은 관리자만 가능합니다"
   },
   "redPacket": {
     "title": "빨간 봉투",

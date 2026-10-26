@@ -1196,6 +1196,43 @@ export interface ChangelogVersion {
   sections: ChangelogSection[];
 }
 
+/** 上游仓库更新日志（设置 → 更新日志 → 上游）：只记录，不跟随 */
+export interface UpstreamLog {
+  /** 本地记录文件是否存在/可读 */
+  available: boolean;
+  /** CHANGELOG-UPSTREAM.md 的绝对路径 */
+  path: string;
+  /** owner/repo */
+  repo: string;
+  /** 上次巡检时间（epoch 秒，0 = 从未检查） */
+  checked_at: number;
+  /** 上次巡检的错误（网络/限流），空串表示成功 */
+  error: string;
+  /* 远端 main 的 HEAD */
+  remote_sha: string;
+  remote_short: string;
+  remote_subject: string;
+  remote_date: string;
+  /** 远端 HEAD 是否在本地历史之外（true = 上游有本地还没跟上的提交） */
+  remote_newer: boolean | null;
+  /* 本地上游仓库的 HEAD */
+  local_sha: string;
+  local_short: string;
+  local_date: string;
+  local_subject: string;
+  /** 上游二进制的 appVersion */
+  app_version: string;
+  /** 一次巡检看多少条远端提交 */
+  window: number;
+  /** 每天几点巡检（本地时区） */
+  watch_hour: number;
+  /** 恒为 true：本功能只记录不跟随，界面据此写说明 */
+  never_follow: boolean;
+  total: number;
+  versions: ChangelogVersion[];
+  truncated: boolean;
+}
+
 export interface Changelog {
   /** CHANGELOG.md 是否可读 */
   available: boolean;

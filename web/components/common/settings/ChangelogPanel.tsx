@@ -1,15 +1,24 @@
 'use client';
 
 import {useEffect, useState} from 'react';
-import {ChevronRight, FileText, Loader2, Package, TriangleAlert} from 'lucide-react';
+import {
+  ChevronRight,
+  FileText,
+  GitBranch,
+  Loader2,
+  Package,
+  RefreshCw,
+  TriangleAlert,
+} from 'lucide-react';
 
 import {Badge} from '@/components/ui/badge';
 import {Button} from '@/components/ui/button';
 import {systemApi} from '@/lib/api';
+import {fmtDateTime} from '@/lib/format';
 import {RichText} from '@/lib/i18n/rich-text';
 import {useT} from '@/lib/i18n/provider';
 import {cn} from '@/lib/utils';
-import type {Changelog, ChangelogItem} from '@/lib/types';
+import type {Changelog, ChangelogItem, UpstreamLog} from '@/lib/types';
 
 const REPO_URL = 'https://github.com/ithtelab/workbuddy-manager/releases';
 
@@ -103,6 +112,7 @@ function ItemList({items}: {items: ChangelogItem[]}) {
 function VersionBlock({
   index,
   version,
+  label,
   date,
   unreleased,
   isCurrent,
@@ -110,9 +120,12 @@ function VersionBlock({
   expanded,
   onToggle,
   sections,
+  showSeeAll = true,
 }: {
   index: number;
   version: string;
+  /** 左上角那行文字；缺省是 `v<version>`（上游日志传原文，避免出现「v上游 …」） */
+  label?: string;
   date: string;
   unreleased: boolean;
   isCurrent: boolean;
@@ -120,6 +133,8 @@ function VersionBlock({
   expanded: boolean;
   onToggle: () => void;
   sections: Changelog['versions'][number]['sections'];
+  /** 本地日志底部有「全部版本见 Releases」；上游流水没有 Release，要关掉 */
+  showSeeAll?: boolean;
 }) {
   const t = useT();
   const count = sections.reduce((n, s) => n + s.items.length, 0);
@@ -145,7 +160,7 @@ function VersionBlock({
         />
         <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
           <span className="font-mono text-xs font-medium">
-            {unreleased ? t('changelog.unreleased') : `v${version}`}
+            {label ?? (unreleased ? t('changelog.unreleased') : `v${version}`)}
           </span>
           {isCurrent && !unreleased && (
             <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
@@ -194,7 +209,7 @@ function VersionBlock({
               {t('changelog.thisIsCurrent')}
             </div>
           )}
-          {index === 0 && !unreleased && (
+          {index === 0 && !unreleased && showSeeAll && (
             <div className="pt-0.5 text-[11px] text-muted-foreground">
               {t('changelog.seeAll')}
             </div>
@@ -205,7 +220,7 @@ function VersionBlock({
   );
 }
 
-export function ChangelogPanel() {
+function LocalChangelog() {
   const t = useT();
   const [data, setData] = useState<Changelog | null>(null);
   const [error, setError] = useState('');
@@ -297,6 +312,234 @@ export function ChangelogPanel() {
           {t('changelog.truncated', {n: data.versions.length, total: data.total ?? 0})}
         </p>
       )}
+    </div>
+  );
+}
+
+/**
+ * 上游仓库更新日志（只记录，不跟随）。
+ *
+ * 与上面的本地面板是两份独立数据：本地这份读 `CHANGELOG.md`（本仓库发布日志），
+ * 这份读 `CHANGELOG-UPSTREAM.md`（每日巡检上游追加的流水）。分开显示的目的就是
+ * 让「我们自己改了什么」与「上游又动了什么」不会搅在一起，也保证巡检永远不会
+ * 写进本地版本的日志里。
+ */
+function UpstreamChangelog() {
+  const t = useT();
+  const [data, setData] = useState<UpstreamLog | null>(null);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [checking, setChecking] = useState(false);
+  const [open, setOpen] = useState<string | null>(null);
+
+  const apply = (d: UpstreamLog) => {
+    setData(d);
+    if (d.versions.length) setOpen((cur) => cur ?? d.versions[0].version);
+  };
+
+  useEffect(() => {
+    let alive = true;
+    systemApi
+      .upstreamLog()
+      .then((d) => alive && apply(d))
+      .catch(() => alive && setError(t('changelog.upstreamLoadFailed')))
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [t]);
+
+  const runCheck = async () => {
+    setChecking(true);
+    setError('');
+    try {
+      const res = await systemApi.checkUpstream();
+      const d = await systemApi.upstreamLog();
+      apply(d);
+      if (!res.ok) setError(t('changelog.upstreamCheckFailed', {err: res.error || ''}));
+    } catch {
+      setError(t('changelog.upstreamLoadFailed'));
+    } finally {
+      setChecking(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center gap-2 rounded-[20px] bg-muted py-16 text-xs text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        {t('changelog.loading')}
+      </div>
+    );
+  }
+
+  const meta = data;
+  const repoUrl = meta?.repo ? `https://github.com/${meta.repo}` : '';
+  const behind = meta?.remote_newer === true;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <GitBranch className="h-4 w-4" />
+          {t('changelog.upstreamTitle')}
+          {meta?.app_version && (
+            <span className="font-mono text-xs text-muted-foreground">
+              {t('changelog.upstreamAppVersion', {v: meta.app_version})}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5">
+          {repoUrl && (
+            <Button asChild variant="ghost" size="sm" className="h-7 gap-1.5 text-xs">
+              <a href={repoUrl} target="_blank" rel="noreferrer">
+                <Package className="h-3.5 w-3.5" />
+                {meta?.repo}
+              </a>
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1.5 text-xs"
+            onClick={runCheck}
+            disabled={checking}
+          >
+            {checking ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
+            {checking ? t('changelog.upstreamChecking') : t('changelog.upstreamCheckNow')}
+          </Button>
+        </div>
+      </div>
+
+      {/* 只记录不跟随 —— 说在前面，避免被当成「自动升级开关」 */}
+      <p className="rounded-[14px] border border-border bg-muted/60 px-3 py-2 text-[11px] leading-5 text-muted-foreground">
+        {t('changelog.upstreamNever')}
+      </p>
+
+      {meta && (
+        <div className="grid gap-2 rounded-[16px] border border-border p-3 text-[11px] sm:grid-cols-2">
+          <div className="min-w-0 space-y-1">
+            <div className="text-muted-foreground">{t('changelog.upstreamRemoteHead')}</div>
+            <div className="truncate font-mono">{meta.remote_short || '—'}</div>
+            <div className="truncate text-muted-foreground" title={meta.remote_subject}>
+              {meta.remote_date} {meta.remote_subject}
+            </div>
+          </div>
+          <div className="min-w-0 space-y-1">
+            <div className="text-muted-foreground">{t('changelog.upstreamLocalHead')}</div>
+            <div className="truncate font-mono">{meta.local_short || '—'}</div>
+            <div className="truncate text-muted-foreground" title={meta.local_subject}>
+              {meta.local_date} {meta.local_subject}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 sm:col-span-2">
+            {meta.remote_newer === null ? null : behind ? (
+              <Badge
+                variant="outline"
+                className="h-5 border-amber-500/40 bg-amber-500/10 px-1.5 text-[10px] text-amber-600 dark:text-amber-400"
+              >
+                {t('changelog.upstreamBehind')}
+              </Badge>
+            ) : (
+              <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
+                {t('changelog.upstreamSynced')}
+              </Badge>
+            )}
+            <span className="text-muted-foreground">
+              {meta.checked_at
+                ? t('changelog.upstreamCheckedAt', {t: fmtDateTime(meta.checked_at)})
+                : t('changelog.upstreamNeverChecked')}
+            </span>
+            <span className="text-muted-foreground">
+              · {t('changelog.upstreamSchedule', {hour: String(meta.watch_hour)})}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {(error || meta?.error) && (
+        <div className="flex items-start gap-2.5 rounded-[16px] border border-amber-500/30 bg-amber-500/10 p-3">
+          <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+          <div className="min-w-0 break-words text-[11px] text-muted-foreground">
+            {error || meta?.error}
+          </div>
+        </div>
+      )}
+
+      {!meta?.available || !meta.versions.length ? (
+        <div className="rounded-[20px] bg-muted px-4 py-10 text-center text-xs text-muted-foreground">
+          {t('changelog.upstreamEmpty')}
+        </div>
+      ) : (
+        <div className="scroll-slim max-h-[calc(100dvh-320px)] min-h-[240px] space-y-2 overflow-y-auto pr-1">
+          {meta.versions.map((v, i) => (
+            <VersionBlock
+              key={v.version}
+              index={i}
+              version={v.version}
+              label={v.version}
+              date=""
+              unreleased={v.unreleased}
+              isCurrent={false}
+              currentVersion=""
+              expanded={open === v.version}
+              onToggle={() => setOpen(open === v.version ? null : v.version)}
+              sections={v.sections}
+              showSeeAll={false}
+            />
+          ))}
+        </div>
+      )}
+
+      {meta?.truncated && (
+        <p className="text-[11px] text-muted-foreground">
+          {t('changelog.truncated', {n: meta.versions.length, total: meta.total})}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 更新日志面板：本地 / 上游两块分开显示。
+ *
+ * 为什么做成一个 Tab 里的两段而不是两个设置页：设置页的 Tab 数量有测试盯着
+ * （8 个，改数要同步路由、路线图与 CHANGELOG），而这两份日志本来就是「同一个
+ * 问题的两面」——本地改了什么、上游又动了什么，放在一起看才有意义。
+ */
+export function ChangelogPanel() {
+  const t = useT();
+  const [view, setView] = useState<'local' | 'upstream'>('local');
+  const tabs: Array<{key: 'local' | 'upstream'; label: string}> = [
+    {key: 'local', label: t('changelog.tabLocal')},
+    {key: 'upstream', label: t('changelog.tabUpstream')},
+  ];
+  return (
+    <div className="space-y-3">
+      <div className="inline-flex rounded-full bg-muted p-0.5" role="tablist">
+        {tabs.map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            role="tab"
+            aria-selected={view === tab.key}
+            onClick={() => setView(tab.key)}
+            className={cn(
+              'rounded-full px-3 py-1 text-xs transition-colors',
+              view === tab.key
+                ? 'bg-background font-medium text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+      {view === 'local' ? <LocalChangelog /> : <UpstreamChangelog />}
     </div>
   );
 }

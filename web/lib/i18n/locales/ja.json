@@ -1158,7 +1158,25 @@
     "sectionFixed": "修正",
     "sectionImproved": "改善",
     "sectionNotes": "補足",
-    "sectionPlanned": "予定"
+    "sectionPlanned": "予定",
+    "tabLocal": "ローカルの更新履歴",
+    "tabUpstream": "上流の更新",
+    "upstreamTitle": "上流リポジトリの更新履歴",
+    "upstreamRepo": "上流リポジトリ",
+    "upstreamCheckedAt": "前回の確認：{t}",
+    "upstreamNeverChecked": "まだ確認していません",
+    "upstreamSchedule": "毎日 {hour}:00 に自動確認",
+    "upstreamNever": "記録のみ・追従しません：ここには「上流にあってローカルにない」コミットだけを記録します。自動更新も上流リポジトリへの変更も行いません。",
+    "upstreamRemoteHead": "上流の最新",
+    "upstreamLocalHead": "ローカルの上流版",
+    "upstreamBehind": "上流にローカル未追従のコミットがあります",
+    "upstreamSynced": "ローカルは上流の最新を含んでいます",
+    "upstreamCheckNow": "今すぐ確認",
+    "upstreamChecking": "確認中…",
+    "upstreamCheckFailed": "確認に失敗：{err}",
+    "upstreamEmpty": "まだ記録がありません。定時に自動確認します。上の「今すぐ確認」も使えます。",
+    "upstreamLoadFailed": "上流の更新履歴を読み込めませんでした",
+    "upstreamAppVersion": "上流バージョン {v}"
   },
   "updatePanel": {
     "currentVersion": "現在のバージョン",
@@ -1797,7 +1815,8 @@
     "账号最短间隔不能大于最长间隔": "アカウントの最小間隔は最大間隔以下にしてください",
     "秒": "秒",
     "分钟": "分",
-    "请求上限（旧版上游）": "リクエスト上限（旧版上流）"
+    "请求上限（旧版上游）": "リクエスト上限（旧版上流）",
+    "仅管理员可手动巡检上游": "アップストリームの手動チェックは管理者のみ可能です"
   },
   "redPacket": {
     "title": "紅包（レッドパケット）",

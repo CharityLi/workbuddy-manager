@@ -21,7 +21,8 @@ from .routers import (
     usage_history,
     cache_rate,
 )
-from .services import accountlog, cooling, dailyplan, pgsync, renew, tasklog, taskrun
+from .services import (accountlog, cooling, dailyplan, pgsync, renew, tasklog,
+                       taskrun, upstreamwatch)
 
 # 最早时刻把标准输出/错误钉成 UTF-8：Windows 中文区域默认按 cp936 编码，日志里
 # 一旦出现 emoji（账号昵称就可能带）就会抛 UnicodeEncodeError —— 与「成长任务」
@@ -66,6 +67,9 @@ async def lifespan(app: FastAPI):
     # 请求日志的「账号」回填（issue #69）：账号是上游选的、不在响应里回传，
     # 只能从它的容器日志里读出来再按时间对回去（见 accountlog 的说明）。
     accountlog.start_collector()
+    # 上游仓库每日巡检：只记录「上游有本地还没有的提交」到本地
+    # CHANGELOG-UPSTREAM.md，**不跟随升级**（见 services/upstreamwatch 顶部说明）。
+    upstreamwatch.start_scheduler()
     # PostgreSQL 定时备份（用户反馈：怕服务器暴雷丢数据）。默认关闭 ——
     # 只有配好连接、打开开关并设了间隔才会真的推数据出去。
     pgsync.start_scheduler()
@@ -79,6 +83,7 @@ async def lifespan(app: FastAPI):
         dailyplan.stop_scheduler()
         accountlog.stop_collector()
         pgsync.stop_scheduler()
+        upstreamwatch.stop_scheduler()
         # 出站客户端是共享的（issue #144：Windows 上每次新建要 ~1 秒），
         # 退出时统一关掉，别把连接池与 SSL 上下文丢在原地。
         await config.close_clients()

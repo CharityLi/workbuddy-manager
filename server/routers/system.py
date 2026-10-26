@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import os
 import re
@@ -15,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from .. import config, security
 from ..iputil import client_ip
-from ..services import changelog, updater, wb2api
+from ..services import changelog, upstreamwatch, updater, wb2api
 
 router = APIRouter(prefix='/api/system', tags=['system'])
 
@@ -210,6 +211,28 @@ async def versions(user: dict = Depends(security.current_user)) -> dict:
         'upstream_accounts': upstream_total,
         'upstream_dir': str(updater._upstream_dir()),
     }
+
+
+@router.get('/upstream-log')
+def get_upstream_log(user: dict = Depends(security.current_user)) -> dict:
+    """上游仓库更新日志（**只记录，不跟随**）。
+
+    与 `/changelog` 是两份东西：那份是本仓库发布的版本日志（CHANGELOG.md），
+    这份是本机每日巡检上游仓库追加的「上游有本地还没有的提交」（
+    CHANGELOG-UPSTREAM.md）。刻意分开，谁都不覆盖谁。
+    """
+    return upstreamwatch.load_log()
+
+
+@router.post('/upstream-check')
+async def check_upstream(user: dict = Depends(security.current_user)) -> dict:
+    """立刻巡检一次上游（管理员操作，会打 GitHub API）。
+
+    只写本地日志与状态，**不动上游仓库**：不 fetch、不 pull、不 merge。
+    """
+    if user.get('role') != 'admin':
+        raise HTTPException(status_code=403, detail='仅管理员可手动巡检上游')
+    return await asyncio.to_thread(upstreamwatch.check, True)
 
 
 @router.get('/changelog')

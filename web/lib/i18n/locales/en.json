@@ -1185,7 +1185,25 @@
     "sectionFixed": "Fixed",
     "sectionImproved": "Improved",
     "sectionNotes": "Notes",
-    "sectionPlanned": "Planned"
+    "sectionPlanned": "Planned",
+    "tabLocal": "Local changelog",
+    "tabUpstream": "Upstream updates",
+    "upstreamTitle": "Upstream repository changelog",
+    "upstreamRepo": "Upstream repo",
+    "upstreamCheckedAt": "Last checked: {t}",
+    "upstreamNeverChecked": "Not checked yet",
+    "upstreamSchedule": "Checked automatically every day at {hour}:00",
+    "upstreamNever": "Recorded only, never followed: this logs commits that exist upstream but not locally. It never upgrades anything or touches the upstream repository.",
+    "upstreamRemoteHead": "Upstream HEAD",
+    "upstreamLocalHead": "Local upstream build",
+    "upstreamBehind": "Upstream has commits this machine has not followed",
+    "upstreamSynced": "Local already contains the upstream HEAD",
+    "upstreamCheckNow": "Check now",
+    "upstreamChecking": "Checking…",
+    "upstreamCheckFailed": "Check failed: {err}",
+    "upstreamEmpty": "Nothing recorded yet. It checks automatically on schedule, or use \"Check now\" above.",
+    "upstreamLoadFailed": "Failed to read the upstream changelog",
+    "upstreamAppVersion": "Upstream version {v}"
   },
   "updatePanel": {
     "currentVersion": "Current version",
@@ -1824,7 +1842,8 @@
     "账号最短间隔不能大于最长间隔": "Minimum account gap cannot exceed maximum account gap",
     "秒": "sec",
     "分钟": "min",
-    "请求上限（旧版上游）": "Request limit (legacy upstream)"
+    "请求上限（旧版上游）": "Request limit (legacy upstream)",
+    "仅管理员可手动巡检上游": "Only administrators can run the upstream check"
   },
   "redPacket": {
     "title": "Red packets",

@@ -63,6 +63,7 @@ import type {
   UsageBreakdown,
   UsageHourPoint,
   UsagePoint,
+  UpstreamLog,
   UserItem,
   Versions,
 } from './types';
@@ -756,6 +757,10 @@ export const systemApi = {
     del<{ok: boolean; message: string}>('/api/system/update-status'),
   /** 更新日志（解析仓库根目录 CHANGELOG.md，离线可用） */
   changelog: () => get<Changelog>('/api/system/changelog'),
+  /** 上游仓库更新日志（只记录，不跟随；与上方的本地 changelog 是两份） */
+  upstreamLog: () => get<UpstreamLog>('/api/system/upstream-log'),
+  /** 立刻巡检一次上游（管理员；只写本地日志，不动上游仓库） */
+  checkUpstream: () => post<{ok: boolean; new: number; error?: string}>('/api/system/upstream-check', {}),
 };
 
 /* ── PostgreSQL 异地备份（设置 → 数据备份）────────────── */

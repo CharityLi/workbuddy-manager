@@ -1158,7 +1158,25 @@
     "sectionFixed": "修復",
     "sectionImproved": "改進",
     "sectionNotes": "說明",
-    "sectionPlanned": "計劃中"
+    "sectionPlanned": "計劃中",
+    "tabLocal": "本地更新日誌",
+    "tabUpstream": "上游更新",
+    "upstreamTitle": "上游倉庫更新日誌",
+    "upstreamRepo": "上游倉庫",
+    "upstreamCheckedAt": "上次檢查：{t}",
+    "upstreamNeverChecked": "尚未檢查過",
+    "upstreamSchedule": "每天 {hour}:00 自動檢查一次",
+    "upstreamNever": "只記錄，不跟隨：這裡只記「上游有、本地還沒有」的提交，不會自動升級，也不會改動上游倉庫的任何檔案。",
+    "upstreamRemoteHead": "上游最新",
+    "upstreamLocalHead": "本地上游版本",
+    "upstreamBehind": "上游有本地還沒跟上的提交",
+    "upstreamSynced": "本地已包含上游最新提交",
+    "upstreamCheckNow": "立即檢查",
+    "upstreamChecking": "正在檢查…",
+    "upstreamCheckFailed": "檢查失敗：{err}",
+    "upstreamEmpty": "還沒有記錄。到點會自動檢查，也可以用上面的「立即檢查」。",
+    "upstreamLoadFailed": "讀取上游更新日誌失敗",
+    "upstreamAppVersion": "上游版本 {v}"
   },
   "updatePanel": {
     "currentVersion": "目前版本",
@@ -1797,7 +1815,8 @@
     "账号最短间隔不能大于最长间隔": "帳號最短間隔不能大於最長間隔",
     "秒": "秒",
     "分钟": "分鐘",
-    "请求上限（旧版上游）": "請求上限（舊版上游）"
+    "请求上限（旧版上游）": "請求上限（舊版上游）",
+    "仅管理员可手动巡检上游": "僅管理員可手動巡檢上游"
   },
   "redPacket": {
     "title": "紅包",
