@@ -64,11 +64,19 @@ def cache_rate(
     records = skipped = 0
     files_seen = 0
 
+    files: list[Path] = []
     for i in range(days):
         d = (date.today() - timedelta(days=i)).isoformat()
         f = logdir / f'requests-{d}.jsonl'
-        if not f.is_file():
-            continue
+        if f.is_file():
+            files.append(f)
+    if not files:
+        # 跨零点后当天还没产生日志：退回最近一天有数据的文件，
+        # 否则夜里整块命中率都会显示成「—」，看起来像坏了
+        recent = sorted(logdir.glob('requests-*.jsonl'))
+        files = recent[-1:]
+
+    for f in files:
         files_seen += 1
         try:
             with f.open(encoding='utf-8') as fh:
