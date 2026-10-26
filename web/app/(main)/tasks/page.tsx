@@ -88,7 +88,7 @@ const KIND_LABEL_KEYS: Record<string, string> = {
  * 需要更早的记录时用时间范围筛选收窄。
  */
 const CHECKIN_LIMIT = 200;
-const TASK_LIMIT = 200;
+const TASK_LIMIT = 500;
 /** 手机端用更小的上限：卡片行高约是表格行的两倍，滚动也更费屏幕 */
 const TASK_LIMIT_MOBILE = 80;
 

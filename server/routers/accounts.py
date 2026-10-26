@@ -1370,7 +1370,7 @@ async def checkin_all(upstream_id: int | None = Query(None),
 
 @router.get('/checkin-logs')
 def checkin_logs(
-    limit: int = 200,
+    limit: int = 500,
     uid: str | None = None,
     offset: int = 0,
     days: int | None = None,
@@ -1587,7 +1587,7 @@ def _uid_matches_realm(uid: str, realm_map: dict[str, str] | None, realm: str) -
 
 @router.get('/task-logs')
 def task_logs(
-    limit: int = 200,
+    limit: int = 500,
     offset: int = 0,
     uid: str | None = None,
     kind: str | None = None,

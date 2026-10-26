@@ -1037,7 +1037,7 @@ def _checkin_where(uid: str | None = None, days: int | None = None) -> tuple[str
 
 
 def list_checkin_logs(
-    limit: int = 200,
+    limit: int = 500,
     uid: str | None = None,
     *,
     offset: int = 0,
@@ -1400,7 +1400,7 @@ def _task_log_where(
 
 
 def list_task_logs(
-    limit: int = 200,
+    limit: int = 500,
     uid: str | None = None,
     kind: str | None = None,
     *,
