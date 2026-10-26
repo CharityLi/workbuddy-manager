@@ -7,6 +7,7 @@ import io
 import json
 import logging
 import shutil
+import hashlib
 import time
 import zipfile
 from pathlib import Path
@@ -1206,7 +1207,8 @@ async def refresh_all_credits(
     if force and str(user.get('role') or '') != 'admin':
         raise HTTPException(status_code=403, detail='刷新积分需要管理员权限')
 
-    base_dir = _require_dir(_group(upstream_id))
+    group = _group(upstream_id)
+    base_dir = _require_dir(group)
     accounts = wb2api.list_auth_accounts(base_dir)
     # 扇出上限（issue #161）：本接口对**全部账号**并发，而它们共用同一个 httpx
     # 连接池（借用语义见 config.http_client）。不设上限时账号一多就把池占满，
@@ -1289,7 +1291,8 @@ async def checkin_all(upstream_id: int | None = Query(None),
     几十个账号叠加腾讯 RPC 耗时会超过前端 60 秒超时——前端报失败、
     后端却还在跑，用户容易重复点击。并发后总耗时约等于最慢的单个账号。
     """
-    base_dir = _require_dir(_group(upstream_id))
+    group = _group(upstream_id)
+    base_dir = _require_dir(group)
     accounts = wb2api.list_auth_accounts(base_dir)
     done_today = db.checkin_done_since(_today_start())
     sem = _checkin_semaphore()
@@ -1358,6 +1361,26 @@ async def checkin_all(upstream_id: int | None = Query(None),
     attempted = [r for r in applicable if not r.get('already')]
     succeeded = sum(1 for r in attempted if r['ok'])
     failed = sum(1 for r in attempted if not r['ok'])
+
+    # 本地批量签到不走网关，网关上不会有这行日志；不在这里补一条，
+    # 「自动任务与积分记录」里就永远看不到这次签到（尤其是非默认分组）。
+    if attempted or already:
+        gd = dict(group) if group else {}
+        gname = str(gd.get('name') or '').strip()
+        prefix = f'[{gname}] ' if gname else ''
+        msg = f'{prefix}批量签到 {succeeded}/{len(attempted)} 成功'
+        if already:
+            msg += f'（{len(already)} 个今日已签）'
+        if failed:
+            msg += f'，{failed} 个失败'
+        now = int(time.time())
+        db.add_task_logs([{
+            'ts': now, 'uid': '', 'kind': 'checkin',
+            'level': 'ok' if not failed else 'warn', 'credits': 0,
+            'message': msg,
+            'dedup_key': hashlib.sha1(f'{now}|{msg}'.encode('utf-8')).hexdigest(),
+        }])
+
     return {
         'total': len(attempted),
         'succeeded': succeeded,
