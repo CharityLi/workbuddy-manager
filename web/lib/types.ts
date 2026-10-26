@@ -12,6 +12,13 @@ export interface Account {
    * 写在上游 auth 文件顶层 `weight` 里 —— 上游刷新 token 时会保留它。
    */
   weight?: number;
+  /**
+   * 今日消耗积分：来自上游 usage.json 台账（唯一带 uid 维度的扣费来源）。
+   * null = 台账读不到，**不等于 0**；0 才是今天确实没扣过费。
+   */
+  today_credit?: number | null;
+  /** 今日请求次数（同一本台账），用于 tooltip 说明「扣了多少 / 跑了多少次」 */
+  today_requests?: number | null;
   /** 该令牌签发的总时长（秒）；后端从 JWT 解出，解不出为 null */
   ttl_seconds?: number | null;
   /** 令牌签发时间（秒）≈ 最近一次刷新时间；后端从 JWT iat 解出，解不出为 null */

@@ -943,6 +943,23 @@ export default function AccountsPage() {
     );
   }
 
+  function renderTodayCredit(a: Account) {
+    // null/undefined = 台账读不到（≠ 今天没花钱），显示破折号；0 才是真没扣费
+    const v = a.today_credit;
+    if (v === null || v === undefined) {
+      return <span className="text-muted-foreground">—</span>;
+    }
+    const req = a.today_requests;
+    return (
+      <span
+        className="tabular-nums"
+        title={req != null ? `${t('accounts.colTodayCredit')} ${req} 次请求` : undefined}
+      >
+        {fmtNumber(Math.round(v * 100) / 100)}
+      </span>
+    );
+  }
+
   function renderExpiry(a: Account) {
     if (a.expires_at <= 0) {
       return <div className="w-[150px] text-[11px] text-muted-foreground">{t('metric.unknown')}</div>;
@@ -1595,11 +1612,12 @@ export default function AccountsPage() {
         <Table className="table-fixed [&_td]:overflow-hidden">
           <TableHeader>
             <TableRow className="border-b border-border/60 hover:bg-transparent">
-              <TableHead className="w-[17%] pl-4 text-[11px] text-muted-foreground">{t('accounts.colNickname')}</TableHead>
-              <TableHead className="w-[19%] text-[11px] text-muted-foreground">UID</TableHead>
-              <TableHead className="w-[9%] text-[11px] text-muted-foreground">{t('accounts.colStatus')}</TableHead>
-              <TableHead className="w-[14%] text-[11px] text-muted-foreground">{t('metric.credits')}</TableHead>
-              <TableHead className="w-[13%] text-[11px] text-muted-foreground">{t('accounts.colExpiry')}</TableHead>
+              <TableHead className="w-[15%] pl-4 text-[11px] text-muted-foreground">{t('accounts.colNickname')}</TableHead>
+              <TableHead className="w-[15%] text-[11px] text-muted-foreground">UID</TableHead>
+              <TableHead className="w-[8%] text-[11px] text-muted-foreground">{t('accounts.colStatus')}</TableHead>
+              <TableHead className="w-[12%] text-[11px] text-muted-foreground">{t('metric.credits')}</TableHead>
+              <TableHead className="w-[11%] text-[11px] text-muted-foreground">{t('accounts.colTodayCredit')}</TableHead>
+              <TableHead className="w-[11%] text-[11px] text-muted-foreground">{t('accounts.colExpiry')}</TableHead>
               {hasProxyUi && <TableHead className="w-[10%] text-[11px] text-muted-foreground">{t('accounts.proxyLine')}</TableHead>}
               {isAdmin && <TableHead className="w-[330px] whitespace-nowrap pr-4 text-right text-[11px] text-muted-foreground">{t('accounts.colActions')}</TableHead>}
             </TableRow>
@@ -1649,6 +1667,7 @@ export default function AccountsPage() {
                   </div>
                 </TableCell>
                 <TableCell>{renderCredits(a)}</TableCell>
+                <TableCell>{renderTodayCredit(a)}</TableCell>
                 <TableCell>{renderExpiry(a)}</TableCell>
                 {hasProxyUi && <TableCell>{renderProxy(a)}</TableCell>}
                 {isAdmin && <TableCell className="whitespace-nowrap pr-4">{renderActions(a)}</TableCell>}

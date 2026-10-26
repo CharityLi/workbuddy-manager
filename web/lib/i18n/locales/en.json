@@ -361,6 +361,7 @@
     "colNickname": "Nickname",
     "colStatus": "Status",
     "colExpiry": "Token validity",
+    "colTodayCredit": "Spent today",
     "colActions": "Actions",
     "searchPlaceholder": "Search nickname / UID / file / note",
     "groupUsable": "Usable",
@@ -572,7 +573,8 @@
     "reloginQueueReloginCurrent": "Re-login current account",
     "reloginQueueReason": "Block reason: ",
     "reloginQueuePing": "Ping",
-    "reloginQueueAdvanceHint": "After a successful re-login the account leaves the queue and the next one is selected automatically.",
+    "reloginQueueAdvanceHint": "After a successful re-login the account leaves the queue and the next one is selected automatically."
+,
     "reloginQueueDesc": "Re-login quarantined accounts one by one; click any row below to switch the current target.",
     "reloginQueueEmptyTitle": "No quarantined accounts",
     "reloginQueueEmptyDesc": "All accounts are online or scheduled normally; no re-login needed.",
