@@ -17,8 +17,8 @@ from fastapi.responses import StreamingResponse
 from .. import config, db, security, upstreamsvc
 from ..iputil import client_ip
 from ..services import (
-    credits as creditsvc, dailyplan, modelcatalog, reload, renew, tasklog, taskrun,
-    tencent, usage_ledger as usageledger, wb2api,
+    credits as creditsvc, dailyplan, displayname, modelcatalog, reload, renew,
+    tasklog, taskrun, tencent, usage_ledger as usageledger, wb2api,
 )
 from ..services.realm import realm_of, supports_checkin
 
@@ -491,25 +491,14 @@ async def list_accounts(upstream_id: int | None = Query(None),
         uid = str(a.get('uid') or '')
         a['note'] = notes.get(uid, '')
         a['checkin_today'] = done_today.get(uid)
-        # ★ 2026-10-23：显示名「备注优先，昵称兜底」✓
-        #   为什么在后端覆盖而不是前端逐处判：前端有十几处直接读 display_name
-        #   （账号页两套视图 / 仪表盘 / 请求日志 / 签到记录 ✓）
-        #   逐处改成 `note || display_name` 迟早漏一处 ✓
-        #   ⇒ 入口处统一覆盖 ✓ 原名另存 display_name_raw 供需要原始昵称的地方用 ✓
-        raw_name = a.get('display_name') or a.get('nickname') or ''
-        a['display_name_raw'] = raw_name
-        a['nickname_raw'] = a.get('nickname') or ''
-        # ★★ 2026-10-23 修正：**`nickname` 也要覆盖** ✗
-        #   上一版只改了 `display_name` ⇒ 前端读的是 `a.nickname`（仪表盘快照、
-        #   任务页、代理绑定、各种弹窗，共 8+ 处）⇒ 全都没变化 ✓
-        #   ⇒ 在数据出口统一覆盖 nickname ✓ 所有读它地方自动生效 ✓
-        display = a['note'] or raw_name or uid[:8]
-        a['display_name'] = display
-        a['nickname'] = display
+        # 显示名「备注优先，昵称兜底」——统一由 services/displayname 在出口覆盖，
+        # 前端十几处读 nickname 的地方因此都自动生效；原名留在 nickname_raw
+        # （账号页主名称要用它：主行显示真昵称、备注放第二行）。
     # 今日消耗积分：来自上游用量台账（唯一带 uid 维度的扣费来源，见
     # services/usage_ledger 顶部说明）。**读不到 ≠ 没消耗**：台账缺失时给 None，
     # 前端显示「—」；`0` 才是「今天确实没扣过费」。今日请求数一并带回，让界面
     # 能在 tooltip 里说清「扣了多少 / 跑了多少次」，避免被当成实时余额差。
+    displayname.apply(accounts, notes_map=notes, fallback_uid=True)
     today = usageledger.today_usage()
     for a in accounts:
         uid = str(a.get('uid') or '')
@@ -1410,10 +1399,13 @@ def checkin_logs(
     unfiltered_total = local_total + auto_total
 
     # 自动侧的行也要解析昵称（上游只带 uid 前 8 位）；本端的已有昵称
-    resolve_nick = _nickname_resolver()
+    resolve_nick, resolve_uid = _account_resolver()
     for it in merged:
         if not it.get('nickname'):
             it['nickname'] = resolve_nick(str(it.get('uid') or ''))
+    # 顺序要紧：先解析出真昵称，再让备注覆盖显示名（见 services/displayname）；
+    # uid_of 负责把日志里的前 8 位还原成完整 uuid，否则查不到按 uuid 存的备注。
+    displayname.apply(merged, uid_of=resolve_uid)
 
     start = max(0, int(offset))
     end = start + min(500, max(1, int(limit)))
@@ -1438,8 +1430,8 @@ def clear_checkin_logs(user: dict = Depends(security.require_session_admin)) -> 
     return {'ok': True}
 
 
-def _nickname_resolver() -> object:
-    """构造 uid → 昵称的解析函数。
+def _account_resolver() -> tuple[object, object]:
+    """构造 (uid → 昵称, uid 前缀 → 完整 uid) 两个解析函数。
 
     上游 2026-09-12 起把日志里的 uid 截成前 8 位，而账号表里是完整 uuid，
     无法直接相等匹配，因此按前缀解析；前缀命中多个账号（理论可能）时不猜，
@@ -1447,6 +1439,7 @@ def _nickname_resolver() -> object:
     """
     nick_by_uid: dict[str, str] = {}
     nick_by_prefix: dict[str, str] = {}
+    uid_by_prefix: dict[str, str] = {}
     ambiguous: set[str] = set()
     try:
         # 默认目录 + 各分组登记的账号目录：日志里的 uid 可能来自任何一个池，
@@ -1468,6 +1461,7 @@ def _nickname_resolver() -> object:
                     ambiguous.add(prefix)
                 else:
                     nick_by_prefix[prefix] = nick
+                    uid_by_prefix[prefix] = auid
     except Exception:  # noqa: BLE001
         pass
 
@@ -1479,7 +1473,20 @@ def _nickname_resolver() -> object:
         prefix = uid[:8]
         return '' if prefix in ambiguous else nick_by_prefix.get(prefix, '')
 
-    return resolve
+    def resolve_uid(uid: str) -> str:
+        """日志里的 uid → 完整 uuid（已是完整的就是它自己；前缀有歧义时返回空）。
+
+        备注（account_notes）按完整 uuid 存，日志行只有前 8 位 —— 靠它才能让
+        备注覆盖到签到记录与任务记录（见 services/displayname.apply 的 uid_of）。
+        """
+        if not uid:
+            return ''
+        if uid in nick_by_uid:
+            return uid
+        prefix = uid[:8]
+        return '' if prefix in ambiguous else uid_by_prefix.get(prefix, '')
+
+    return resolve, resolve_uid
 
 
 def _realm_uid_filter(realm: str | None) -> dict[str, str] | None:
@@ -1559,12 +1566,14 @@ def task_logs(
         logs = [r for r in logs
                 if _uid_matches_realm(str(r.get('uid') or ''), realm_map, realm)]
 
-    resolve_nick = _nickname_resolver()
+    resolve_nick, resolve_uid = _account_resolver()
     for row in logs:
         # 结果文案中文化：数据库留英文原文（排查要看上游原话），
         # 接口额外给出 message_cn 供界面展示
         row['message_cn'] = tasklog.translate_message(row.get('message', ''))
         row['nickname'] = resolve_nick(str(row.get('uid') or ''))
+    # 签到记录同款顺序：昵称解析完再套备注（uid_of 同源还原完整 uuid）
+    displayname.apply(logs, uid_of=resolve_uid)
 
     # `total` 是**当前筛选下**的条数（列表分页要用），而 `stats` 是**各类型**的
     # 汇总（筛选栏要用它显示每个类型的条数与总条数）。

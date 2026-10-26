@@ -28,6 +28,7 @@ from pathlib import Path
 from urllib.parse import quote, unquote, urlsplit, urlunsplit
 
 from .. import config
+from . import displayname
 from . import wb2api
 from .tencent import _atomic_write_json
 
@@ -429,7 +430,11 @@ def _accounts(auth_dir: Path | None) -> list[tuple[Path, dict]]:
 
 
 def account_rows(auth_dir: Path | None = None) -> list[dict]:
-    """全部账号 + 各自绑定的线路（空 = 跟随池策略）。"""
+    """全部账号 + 各自绑定的线路（空 = 跟随池策略）。
+
+    昵称统一走 `displayname`（**备注优先、昵称兜底**）：绑定弹窗与「仍有账号绑着」
+    的报错文案都读它，用户给账号起的备注在这里同样认得出。
+    """
     rows: list[dict] = []
     for directory, account in _accounts(auth_dir):
         rows.append({
@@ -439,6 +444,7 @@ def account_rows(auth_dir: Path | None = None) -> list[dict]:
             'proxy': str(account.get('proxy') or ''),
             'dir': str(directory),
         })
+    displayname.apply(rows)
     return rows
 
 

@@ -51,7 +51,10 @@ export function matchesQuery(a: Account, q: string): boolean {
   const kw = q.trim().toLowerCase();
   if (!kw) return true;
   return (
+    // `nickname` 已是「备注优先」的显示名，`nickname_raw` 是上游昵称 ——
+    // 两样都要能搜到：用户记得住哪个就搜哪个。
     (a.nickname || '').toLowerCase().includes(kw) ||
+    (a.nickname_raw || '').toLowerCase().includes(kw) ||
     a.uid.toLowerCase().includes(kw) ||
     a.file.toLowerCase().includes(kw) ||
     (a.note || '').toLowerCase().includes(kw)
