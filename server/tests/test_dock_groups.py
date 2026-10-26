@@ -31,7 +31,8 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parents[2]
 _SCRIPT = _ROOT / 'web' / 'lib' / 'dock-groups.test.mjs'
 _PURE = _ROOT / 'web' / 'lib' / 'dock-groups.ts'
-_DOCK = _ROOT / 'web' / 'components' / 'ui' / 'floating-dock.tsx'
+_DOCK_GONE = _ROOT / 'web' / 'components' / 'ui' / 'floating-dock.tsx'  # 2026-10-26 已删（死代码）
+_NAV = _ROOT / 'web' / 'components' / 'dock' / 'dock-nav.tsx'
 _BAR = _ROOT / 'web' / 'components' / 'common' / 'layout' / 'ManagementBar.tsx'
 _LOCALES = _ROOT / 'web' / 'lib' / 'i18n' / 'locales'
 _NODE = shutil.which('node')
@@ -124,149 +125,80 @@ class DockGroupsInvariantTest(unittest.TestCase):
         )
 
     def test_divider_sentinel_is_gone(self) -> None:
-        """哨兵条目 `{title: 'divider'}` 必须彻底消失，两个文件都不能再有。
+        """哨兵条目 `{title: 'divider'}` 必须彻底消失，且旧桌面底栏不能回来。
 
         这是这一批的**根因**：分组曾经靠一个混在 `items` 里的假条目表达，
         于是每个渲染分支都得记得跳过它——移动端就是靠
         `if (item.title === 'divider') return null` 硬跳过的，代价是手机上
-        **完全没有分组语义**。只要这个哨兵回来（或那句跳过回来），移动端就会
-        重新退化成「11 项平铺」。
+        **完全没有分组语义**。
+
+        2026-10-26 起底栏只剩 `components/dock/dock-nav.tsx` 一份实现（桌面/移动
+        共用，分隔线挂在条目的 `dividerBefore` 上），旧的
+        `components/ui/floating-dock.tsx` 整块删除 —— 那条 `false &&` 死分支
+        留着只会让人以为还存在两套渲染。所以这里改成双保险：
+        哨兵不许回来，**旧文件也不许回来**。
         """
-        bar, dock = _code(_BAR), _code(_DOCK)
+        bar = _code(_BAR)
         self.assertNotIn(
             "'divider'", bar,
             'ManagementBar.tsx 里又出现了 divider 哨兵条目——分组语义应当挂在条目的 '
             'groupKey 上，不要再往 items 里塞假条目。',
         )
         self.assertNotIn(
-            "'divider'", dock,
-            'floating-dock.tsx 里又出现了按 title 跳过哨兵的写法——那正是移动端分组'
-            '消失的原因。',
+            'floating-dock', bar,
+            'ManagementBar.tsx 又在 import/render 旧桌面底栏了——底栏只应有一份实现'
+            '（components/dock/dock-nav.tsx），两套并存必然漂移。',
+        )
+        self.assertFalse(
+            _DOCK_GONE.exists(),
+            'components/ui/floating-dock.tsx 又回来了：它已于 2026-10-26 作为死代码删除'
+            '（`{false && …}` 分支），恢复它等于把两套底栏渲染重新引进仓库。',
         )
 
-    def test_every_dock_item_carries_a_group_key(self) -> None:
-        """底栏**每一项**都要带 `groupKey`。
+    def test_dock_has_a_single_implementation_for_both_layouts(self) -> None:
+        """桌面与手机**共用**同一个 DockNav 实例，不许再分两套渲染分支。
 
-        漏掉一项不会报错：`splitByGroup` 会把 `groupKey` 缺省当成空串 '',
-        于是那一项自己成为一组——底栏上凭空多出一条分隔线，或者它被划进
-        相邻的组里，组名与内容对不上。
+        这条守的是 2026-10-26 的收敛：原来桌面走 `FloatingDock`（放大、分组竖线、
+        mousemove 量矩形），手机走 `DockNav`，两套几何与交互完全不同，改一处必然
+        漂移一处。现在只有 `<DockNav … scale={isMobileDock ? 1.2 : 1} />`，
+        差别只剩缩放比。
         """
-        block = _dock_items_block(_code(_BAR))
-        titles = len(re.findall(r"title: t\('nav\.", block))
-        keys = len(re.findall(r'\bgroupKey:', block))
-        self.assertGreater(titles, 0, '找不到底栏条目：`const dockItems = [` 的写法变了？')
+        bar, nav = _code(_BAR), _code(_NAV)
         self.assertEqual(
-            keys, titles,
-            f'底栏有 {titles} 项，却只有 {keys} 项写了 groupKey。漏写的那一项会'
-            '自成一組（缺省当空串处理），底栏上会多出一条分隔线，或它的组名与内容对不上。',
-        )
-
-    def test_group_labels_are_declared_on_group_leads(self) -> None:
-        """三组语义各自有组名，且「动作组」刻意没有组名。
-
-        `splitByGroup` 只取组内**首项**的 label，所以组名写在该组第一项上即可；
-        但三个组名一个都不能少——少了就是「有分隔线、说不出分的是什么」，
-        正是这一批要修的那句「分隔线无标签」。
-        """
-        block = _dock_items_block(_code(_BAR))
-        for key in ("t('nav.groupOverview')", "t('nav.groupOps')", "t('nav.groupGovernance')"):
-            self.assertIn(key, block, f'底栏缺少组名 {key}')
-        # 动作组（快速添加 / 个人信息）不是「目的地」而是动作，刻意不带组名：
-        # 只画一条分隔线与前面的页面分开，不要给它编一个组名。
-        self.assertNotIn(
-            "groupLabel: t('nav.groupActions')", block,
-            '动作组不该有组名——快速添加与个人信息是动作不是页面，硬起一个组名'
-            '反而让人以为那是一类页面。',
-        )
-
-    def test_both_layouts_render_groups(self) -> None:
-        """桌面端与手机端**都**要按分组渲染，两处都要有。
-
-        断言「两处都有」而不是「出现过」：只改桌面端的话，手机上依然是 11 项平铺
-        （这一批要修的就是这个），而且界面不报错，看不出漏了。
-        """
-        dock = _code(_DOCK)
-        self.assertEqual(
-            dock.count('splitByGroup(items)'), 2,
-            'splitByGroup 没有同时用在桌面端与手机端两个分支上——只改一处的话，'
-            '另一种布局下分组语义仍然是缺失的（手机上尤其明显：11 项平铺）。',
-        )
-        self.assertIn(
-            'data-slot="dock-group-divider"', dock,
-            '桌面端的分隔线没有标记，验收脚本与测试都定位不到它',
-        )
-        self.assertIn(
-            'data-slot="dock-group-separator"', dock,
-            '手机端没有分组分隔线——手机上会退化成 11 项平铺，看不出哪几项是一类',
-        )
-        # 组名要挂在分隔线上（桌面端靠近时显示、手机端直接显示），不能只在数据里躺着
-        self.assertIn('<GroupDivider label={group.label}', dock,
-                      '桌面端的分隔线没把组名传下去，那条竖线又变成无标签的了')
-        self.assertRegex(
-            dock, r'group\.label \?',
-            '手机端的分隔线没把组名渲染出来',
-        )
-        # 第一组之前不画线：`index > 0` 两处都要有（否则底栏最左边凭空多一条竖线）
-        self.assertEqual(
-            dock.count('> 0 &&'), 2,
-            '两个渲染分支都要判断「不是第一组才画线」——少了就会在最前面多画一条'
-            '分隔线，看起来像「前面还有一组」。',
-        )
-
-    def test_divider_label_is_driven_by_live_rects(self) -> None:
-        """组名的显隐必须由「当场量出来的矩形」决定，**不能**靠分隔线自己的 hover 事件。
-
-        这是这一批唯一一条「浏览器里真的坏了、而源码看着完全正常」的问题，实测出来的
-        过程值得记下来：底栏是会放大的——鼠标一动附近的图标就从 40px 长到 70px，整个
-        底栏随之变宽（实测 **725 → 787px**）。底栏是 `translateX(-50%)` 居中的，于是
-        **分隔线会从光标底下挪走**（实测挪 8~30px，而线本身只有 1px 宽 + 8px 内边距）。
-        用 `onMouseEnter`/`onMouseLeave` 的结果是「组名亮一下又灭」——采样出来是
-        `11111 000000000000000`，而图标自己的 tooltip 一直稳定在屏上（它的放大围绕
-        光标，所以不会把自己挤走）。
-
-        判据分两半，缺一不可：
-          · 分隔线组件里**不许**再有自己的 hover 事件（那是坏掉的那一版）；
-          · 桌面底栏的 mousemove 里**必须**当场量矩形（`getBoundingClientRect`），
-            否则「挪走」这件事没被考虑进去。
-
-        只在源码上钉住是**不够**的（`active` 完全可能被传成常量而永远为假），所以
-        浏览器层还有一条：`dev/verify_state_honesty.mjs` 里 hover 完要能读到组名。
-        """
-        dock = _code(_DOCK)
-        start = dock.index('const GroupDivider')
-        end = dock.index('GroupDivider.displayName', start)
-        block = dock[start:end]
-        self.assertIn(
-            'data-slot="dock-group-divider"', block,
-            '切不出 GroupDivider 的实现（锚点变了？）——这条断言会变成空转',
-        )
-        self.assertNotIn(
-            'onMouseEnter', block,
-            '分隔线又用回自己的 onMouseEnter 了：图标放大会把分隔线从光标底下推走'
-            '（实测 8~30px，线本身只有 9px 宽），组名会「亮一下又灭」。'
-            '判据要改成由底栏的 mousemove 当场量矩形。',
-        )
-        self.assertNotIn(
-            'onMouseLeave', block,
-            '分隔线又用回自己的 onMouseLeave 了：理由同上——它会被图标放大推走。',
-        )
-
-        # 桌面底栏的 mousemove 里必须真的量矩形，并把结果传到分隔线上
-        dstart = dock.index('const FloatingDockDesktop')
-        dend = dock.index('FloatingDockDesktop.displayName', dstart)
-        desktop = dock[dstart:dend]
-        self.assertIn(
-            'getBoundingClientRect', desktop,
-            '桌面底栏的 mousemove 没有当场量分隔线的矩形：图标放大让底栏变宽、分隔线'
-            '被推开之后，判据就不再指向光标下的那一条了。',
-        )
-        self.assertIn(
-            'DIVIDER_HIT_SLOP', desktop,
-            '没有给分隔线留命中区：线只有 1px 宽（含内边距 9px），必须留出容差',
+            bar.count('<DockNav'), 1,
+            'ManagementBar 里出现了不止一个 <DockNav>：底栏只应有单实例，'
+            '两处渲染会让两套几何各自演进。',
         )
         self.assertRegex(
-            desktop, r'active=\{activeDivider ===',
-            '量出来的序号没有传到 GroupDivider 上（算了却没用，等于没修）',
+            bar, r'scale=\{isMobileDock \? [\d.]+ : [\d.]+\}',
+            '两端差异没有收敛到 scale 一个参数上——又有人在按布局分叉渲染了？',
+        )
+        # 分隔线仍在（这是当年移动端「11 项平铺」的修复不能回退的部分）
+        self.assertIn(
+            'dividerBefore', nav,
+            'dock-nav 不再支持 dividerBefore —— 分隔线没了，底栏又变成一整排平铺。',
+        )
+        self.assertIn(
+            'data-slot="dock-divider"', nav,
+            '分隔线没有标记：验收脚本与测试都定位不到它。',
+        )
+
+    def test_dividers_come_from_item_flags(self) -> None:
+        """分隔线只能由条目上的布尔标记驱动，不能由「按 title 猜」或 hover 决定。
+
+        旧实现里桌面端的分隔线靠 `onMouseEnter` 显隐，而底栏会放大、`translateX(-50%)`
+        居中 ⇒ 分隔线会被图标从光标底下推走（实测挪 8~30px，线本身只有 9px 宽），
+        组名「亮一下又灭」。那套机制随 `floating-dock.tsx` 一起删除后，判据只剩一条：
+        分隔线是**数据**（`dividerBefore`），不再是交互态。
+        """
+        nav = _code(_NAV)
+        self.assertRegex(
+            nav, r'\{it\.dividerBefore && \(',
+            '分隔线不再由 `it.dividerBefore` 驱动——小心又退回「按 title 猜分隔线」的写法。',
+        )
+        self.assertNotIn(
+            "title === 'divider'", nav,
+            'dock-nav 里又出现了按 title 判断分隔线的写法：那正是移动端分组语义消失的原因。',
         )
 
     def test_tip_can_always_be_dismissed(self) -> None:

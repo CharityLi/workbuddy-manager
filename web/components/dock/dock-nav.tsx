@@ -36,8 +36,16 @@ export type DockNavItem = {
   /** 是否当前页 */
   active: boolean;
   onClick: () => void;
-  /** 未读/提醒数 */
+  /** 未读/提醒数（角标内容；由调用方决定含义，如「待处理账号数」）*/
   badge?: number;
+  /**
+   * 角标的无障碍说明（已本地化）。缺省则直接用数字。
+   *
+   * 为什么不由组件自己拼一句「N 条未读」：这个组件被不同入口复用，
+   * 角标含义并不总是「未读」——账号入口挂的是「待处理账号数」。
+   * 拼死的文案既会骗读屏用户，也会在英文界面里冒出中文。
+   */
+  badgeLabel?: string;
   /** 该项左侧画一条分组竖线（2026-10-24 ✓ 恢复旧 Dock 的分组分隔）*/
   dividerBefore?: boolean;
 };
@@ -223,7 +231,11 @@ export function DockNav({
           'pointer-events-none absolute',
           'top-[calc(3px*var(--dock-scale,1))] bottom-[calc(3px*var(--dock-scale,1))]',
           'w-[calc(var(--dock-step)-6px*var(--dock-scale,1))]',
-          'rounded-[calc(28px*var(--dock-scale,1))]',
+          /* ★ 2026-10-26：28 → 16 ✗（旧值 28×1.2=33.6px，而移动端选中块只有 52px 宽
+             ⇒ 圆角超过宽的一半，渲染成一颗胶囊/圆斑，看着像「图标后面糊了块圆形的灰」
+             ⇒ 16×1.2=19.2px 才是「整块 tab 的浅色底」该有的样子 ✓
+             底座外壳圆角仍是 31×scale，两者不再同心 —— 同心需要 34.2px，那就又变胶囊了 ✗ */
+          'rounded-[calc(16px*var(--dock-scale,1))]',
           pillLeft !== null
             ? 'left-[var(--pill-left)]'
             : 'left-[calc(var(--dock-index)*var(--dock-step)+3px)]',
@@ -242,7 +254,7 @@ export function DockNav({
             type="button"
             role="tab"
             aria-selected={effectiveActive === i}
-            aria-label={it.badge ? `${it.label}，${it.badge} 条未读` : it.label}
+            aria-label={it.badge ? `${it.label}，${it.badgeLabel ?? it.badge}` : it.label}
             data-slot="dock-nav-item"
             tabIndex={effectiveActive === i ? 0 : -1}
             onClick={() => {
@@ -268,6 +280,7 @@ export function DockNav({
             {/* ★ 分组竖线：旧 Dock 有，新版要恢复 ✓ 用 header 前景色 12% 透明度 */}
             {it.dividerBefore && (
               <span
+                data-slot="dock-divider"
                 aria-hidden
                 className="pointer-events-none absolute left-0 top-1/4 bottom-1/4 w-px bg-foreground/[0.12]"
               />
@@ -298,7 +311,11 @@ export function DockNav({
               key={`t-${effectiveActive === i}-${pulse}`}
               className={cn(
                 'leading-none tracking-tight truncate max-w-full',
-                'text-[calc(10px*var(--dock-scale,1))]',
+                /* ★ 2026-10-26：加 11px 上限 ✓
+                   实测英文 `Dashboard` 在移动端 12px（10×1.2）时宽 60px，
+                   而每列只有 59px ⇒ 被截成 `Dashbo…` ✗
+                   压到 11px 后 55px，放得下 ✓ 桌面端 scale=1 仍是 10px，不受影响 ✓ */
+                'text-[min(calc(10px*var(--dock-scale,1)),11px)]',
                 effectiveActive === i ? 'font-semibold' : 'font-medium',
                 'transition-[font-weight,color] duration-300 ease-out',
                 effectiveActive === i && 'animate-[dock-pop-text_480ms_cubic-bezier(.34,1.36,.64,1)]',

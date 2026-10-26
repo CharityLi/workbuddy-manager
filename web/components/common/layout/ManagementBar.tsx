@@ -1,6 +1,5 @@
 import {LanguageToggle} from '@/components/common/layout/LanguageToggle';
 import {useState, useEffect, useRef, useCallback} from 'react';
-import {FloatingDock} from '@/components/ui/floating-dock';
 import {Fragment, type ReactNode} from 'react';
 import {DockNav, type DockNavItem} from '@/components/dock/dock-nav';
 import {usePathname, useRouter} from 'next/navigation';
@@ -111,6 +110,16 @@ export function ManagementBar() {
   const [dockTipStep, setDockTipStep] = useState(0);
   /** 受管账号数量（真实数据，供个人信息面板展示） */
   const [accountCount, setAccountCount] = useState<number | null>(null);
+  /**
+   * 需要处理的账号数（被上游禁用 / 健康探测失败）。
+   *
+   * 为什么挂到底座角标：被禁用的账号意味着「这个号在池子里选不动」，
+   * 但入口是「账号」页，而账号页本身不会在别处提示 —— 用户不点进去就永远
+   * 不知道有号废了。角标是唯一不用离开当前页就能看见的位置。
+   * 注意只数**真的不可用**的（disabled / healthy===false），过期时间、冷却
+   * 都算正常波动，挂上去会天天亮着红点，反而没人看。
+   */
+  const [accountIssues, setAccountIssues] = useState(0);
   /**
    * 真实运行版本（取自后端）。
    *
@@ -296,7 +305,12 @@ export function ManagementBar() {
     const fetchCount = async () => {
       try {
         const data = await accountApi.list();
-        if (alive) setAccountCount(data.total);
+        if (alive) {
+          setAccountCount(data.total);
+          setAccountIssues(
+            (data.accounts ?? []).filter((a) => a.disabled || a.healthy === false).length,
+          );
+        }
       } catch {
         if (alive) setAccountCount(null);
       }
@@ -635,6 +649,10 @@ export function ManagementBar() {
         key: href ?? `act-${gk}-${title}`,
         label: title,
         icon: it.icon,
+        /* 账号入口挂「待处理数」角标（只有真的有问题才显示 ✓）*/
+        ...(href === '/accounts' && accountIssues > 0
+          ? {badge: accountIssues, badgeLabel: t('nav.pendingCount', {n: accountIssues})}
+          : {}),
         active: href
           ? pathname === href || (href !== '/dashboard' && pathname.startsWith(href + '/'))
           : false,
@@ -654,9 +672,11 @@ export function ManagementBar() {
     if (isMobileDock) {
       out.push({
         key: '__more__',
-        label: '更多',
+        label: t('nav.more'),
         icon: <MoreHorizontal {...IconOptions} />,
-        active: MORE_HREFS.includes(pathname ?? ''),
+        /* ★ 2026-10-26：加 moreOpen ✓ 旧版只看 pathname ⇒ 点开「更多」面板时
+           底座上那格毫无反馈，用户看不出这面板是从哪冒出来的 ✗ */
+        active: moreOpen || MORE_HREFS.includes(pathname ?? ''),
         onClick: () => setMoreOpen(true),
       });
     }
@@ -825,7 +845,8 @@ export function ManagementBar() {
           </div>
         )}
         {/* ★ 外层 pointer-events-none 是为了让"栏外空白"不挡页面点击 ✓
-            真正的可点区域由 FloatingDock 内部的横排容器接管 ✓ */}
+            真正的可点区域由 DockNav 内部的横排容器接管 ✓
+            （2026-10-26：旧版 FloatingDock 分支已整块删除，见 components/dock/dock-nav.tsx）*/}
         <div className={isMobileDock ? 'pointer-events-auto' : 'pointer-events-auto'}>
         {/* ★ 2026-10-24：换成 DockNav ✓ 旧版用 false && 保留（回退改 true）✓ */}
         <DockNav
@@ -851,21 +872,6 @@ export function ManagementBar() {
               : '!w-[min(768px,calc(100vw-2rem))] mx-auto [&_svg]:h-5 [&_svg]:w-5',
           )}
         />
-        {false && (
-        <FloatingDock
-          items={dockItems}
-          // ★ 2026-10-23：去掉 Tailwind 的 shadow-lg/shadow-black —— 它会盖掉 CSS 变量里的玻璃阴影 ✗
-          //   现在统一由 globals.css 的 [data-slot="dock-bar"] 控制 ✓
-          desktopClassName="bg-background/72 backdrop-blur-xl border border-border/50 h-16 pb-3 px-4 gap-2"
-          /* ★ 2026-10-23：这里**不能**再给背景/边框 ✗
-             原因：`cn(base, buttonClassName)` 里它排最后 ⇒ 会盖掉「选中态」的
-             浅色底块（`bg-foreground/[0.09]`）⇒ 点了看不出在哪一页 ✗
-             TG 的 tab 按钮本身是透明的、只有选中项有底块 ✓
-             ⇒ 玻璃质感统一由外层胶囊（[data-slot="dock-bar"]）提供 ✓
-             ⇒ 尺寸也交给组件（44px ✓ Apple HIG 最小触摸目标 ✓） */
-          mobileButtonClassName=""
-        />
-        )}
         </div>
       </div>
 
@@ -898,7 +904,7 @@ export function ManagementBar() {
           )}
         >
           <DialogHeader>
-            <DialogTitle>更多</DialogTitle>
+            <DialogTitle>{t('nav.more')}</DialogTitle>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3 pt-1">
             {MORE_ENTRIES.map((entry) => {
@@ -924,7 +930,7 @@ export function ManagementBar() {
                     <span className="[&_svg]:h-6 [&_svg]:w-6">
                       {profileItem?.icon ?? <User {...IconOptions} />}
                     </span>
-                    <span className="text-xs font-medium">个人信息</span>
+                    <span className="text-xs font-medium">{t('nav.profile')}</span>
                   </button>
                 );
               }
