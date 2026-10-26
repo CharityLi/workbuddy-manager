@@ -55,6 +55,10 @@ WB2API_STOP_SCRIPT = Path(_env(
 WB2API_LOG_FILE = Path(_env(
     'WB2API_LOG_FILE', str(UPSTREAM_DIR / 'data' / 'server.err.log'),
 ))
+# 上游用量台账（usage.json，v4 结构，按 uid 汇总每日扣费）——「今日消耗积分」的唯一来源
+WB2API_USAGE_FILE = Path(_env(
+    'WB2API_USAGE_FILE', str(WB2API_LOG_FILE.parent / 'usage.json'),
+))
 
 # 本管理端数据
 DATA_DIR = Path(_env('WB_DATA_DIR', str(ROOT / 'data')))
