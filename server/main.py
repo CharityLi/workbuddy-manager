@@ -19,9 +19,9 @@ from .routers import (
     pgsync as pgsync_router, redpackets, responses, security as security_router,
     proxies, settings, stats, system, tokens, upstreams,
     usage_history,
-    cache_rate,
+    cache_rate, watch,
 )
-from .services import (accountlog, cooling, dailyplan, pgsync, renew, tasklog, unbanqueue,
+from .services import (accountlog, cooling, dailyplan, pagewatch, pgsync, renew, tasklog, unbanqueue,
                        taskrun, upstreamwatch)
 
 # 最早时刻把标准输出/错误钉成 UTF-8：Windows 中文区域默认按 cp936 编码，日志里
@@ -67,6 +67,8 @@ async def lifespan(app: FastAPI):
     # 解禁队列：被封（12153）的账号到点自动解禁。解禁要重启网关（上游只在
     # 启动时读 state.json），所以队列一次只处理一个，失败留痕不自动重试。
     unbanqueue.start_scheduler()
+    # 页面监控：定时抓配置的页面，比对正文与前端资源指纹，变化时落事件。
+    pagewatch.start_scheduler()
     # 请求日志的「账号」回填（issue #69）：账号是上游选的、不在响应里回传，
     # 只能从它的容器日志里读出来再按时间对回去（见 accountlog 的说明）。
     accountlog.start_collector()
@@ -85,6 +87,7 @@ async def lifespan(app: FastAPI):
         cooling.stop_scheduler()
         dailyplan.stop_scheduler()
         unbanqueue.stop_scheduler()
+        pagewatch.stop_scheduler()
         accountlog.stop_collector()
         pgsync.stop_scheduler()
         upstreamwatch.stop_scheduler()
@@ -233,6 +236,7 @@ app.include_router(usage_history.router, prefix="/api")
 # ★ 2026-10-23：缓存命中率（读网关 JSONL ✓ 只读 ✓）
 app.include_router(cache_rate.router, prefix="/api")
 app.include_router(accounts.router)
+app.include_router(watch.router)
 app.include_router(keys.router)
 # 红包：批量发放带额度的密钥（与密钥同属「分发」这件事，所以挨着放）
 app.include_router(redpackets.router)

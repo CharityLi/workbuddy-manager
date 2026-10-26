@@ -206,6 +206,34 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_logs(ts);
 
+CREATE TABLE IF NOT EXISTS watch_pages (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  name         TEXT    NOT NULL DEFAULT '',
+  url          TEXT    NOT NULL,
+  enabled      INTEGER NOT NULL DEFAULT 1,
+  interval_min INTEGER NOT NULL DEFAULT 30,
+  last_check   INTEGER NOT NULL DEFAULT 0,
+  last_ok      INTEGER NOT NULL DEFAULT 0,
+  last_error   TEXT    NOT NULL DEFAULT '',
+  title        TEXT    NOT NULL DEFAULT '',
+  body_hash    TEXT    NOT NULL DEFAULT '',   -- 正文文本的指纹
+  asset_hash   TEXT    NOT NULL DEFAULT '',   -- 引用的 js/css 内容指纹
+  last_text    TEXT    NOT NULL DEFAULT '',   -- 上次正文（截断），用来算差异摘要
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_watch_url ON watch_pages(url);
+
+CREATE TABLE IF NOT EXISTS watch_events (
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  page_id INTEGER NOT NULL,
+  ts      INTEGER NOT NULL,
+  kind    TEXT    NOT NULL,             -- body / asset / error
+  summary TEXT    NOT NULL DEFAULT '',
+  detail  TEXT    NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_watch_events ON watch_events(page_id, ts);
+
 CREATE TABLE IF NOT EXISTS unban_queue (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   uid        TEXT    NOT NULL,
