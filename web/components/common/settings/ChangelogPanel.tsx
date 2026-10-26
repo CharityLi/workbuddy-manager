@@ -260,7 +260,11 @@ function LocalChangelog({data, error}: {data: Changelog | null; error: string}) 
   const currentVersion = (data.current || '').replace(/^v/i, '');
   // 这里只放「还没发布」的改动：已经发过的版本在上游那栏（GitHub Releases）里，
   // 两处都列一遍会出现两份会互相漂移的副本。
-  const localVersions = data.versions;
+  // 只列本地自己的那一版（未发布的 + 当前正在跑的版本）：更早的都是上游历史，
+  // 要看它们去「上游」栏，本地栏列一遍只会重复。
+  const localVersions = data.versions.filter(
+    (v) => v.unreleased || v.version.replace(/^v/i, '') === currentVersion,
+  );
 
   return (
     <div className="space-y-3">
