@@ -875,7 +875,26 @@ export default function DashboardPage() {
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                   <XAxis dataKey="day" tickLine={false} axisLine={false} fontSize={11} stroke="var(--muted-foreground)" />
-                  <YAxis tickLine={false} axisLine={false} fontSize={11} stroke="var(--muted-foreground)" />
+                  {/* 两条曲线量级差一到两个数量级（请求数上千、失败数几十），
+                      共用一根轴时失败线会被压成贴着 0 的一条直线——看起来像"没画"。
+                      所以各用一根轴：左轴请求数、右轴失败数，右轴用失败色标出来。 */}
+                  <YAxis
+                    yAxisId="req"
+                    tickLine={false}
+                    axisLine={false}
+                    fontSize={11}
+                    stroke="var(--muted-foreground)"
+                  />
+                  <YAxis
+                    yAxisId="fail"
+                    orientation="right"
+                    width={34}
+                    tickLine={false}
+                    axisLine={false}
+                    fontSize={11}
+                    stroke="var(--destructive)"
+                    allowDecimals={false}
+                  />
                   <Tooltip
                     contentStyle={{
                       background: 'var(--popover)',
@@ -887,6 +906,7 @@ export default function DashboardPage() {
                   <Area
                     type="monotone"
                     dataKey="requests"
+                    yAxisId="req"
                     name={t('metric.requests')}
                     stroke="var(--chart-1)"
                     fill="url(#gReq)"
@@ -895,14 +915,19 @@ export default function DashboardPage() {
                   {/* 失败曲线单独画（虚线、不发散填充）：它来自另一份数据源，
                       与请求数不是「同一条曲线的两个部分」，不该堆叠。
                       没有失败时这条线贴着 0，不干扰读数。 */}
+                  {/* 失败是稀疏事件：只画线时一天的尖峰只有 1px 宽，极易错过。
+                      点上圆点，哪一天出过事一眼能看到。 */}
                   <Area
                     type="monotone"
                     dataKey="failed"
+                    yAxisId="fail"
                     name={t('dashboard.failedRequests')}
                     stroke="var(--destructive)"
                     fill="none"
                     strokeWidth={1.5}
                     strokeDasharray="4 3"
+                    dot={{r: 2.6, fill: 'var(--destructive)', strokeWidth: 0}}
+                    activeDot={{r: 4}}
                   />
                 </AreaChart>
               </ResponsiveContainer>
