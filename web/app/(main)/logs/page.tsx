@@ -1,5 +1,6 @@
 'use client';
 
+import {channelOf} from '@/lib/log-channel';
 import {useCallback, useRef, useState} from 'react';
 import {ScrollText, RotateCcw, Trash2, ChevronLeft, ChevronRight} from 'lucide-react';
 import {useHeartbeat} from '@/lib/use-heartbeat';
@@ -383,6 +384,8 @@ export default function LogsPage() {
               <TableHead className="text-[11px] text-muted-foreground">IP</TableHead>
               <TableHead className="text-[11px] text-muted-foreground">{t('logs.colAccount')}</TableHead>
               <TableHead className="text-[11px] text-muted-foreground">{t('nav.models')}</TableHead>
+              <TableHead className="text-[11px] text-muted-foreground">{t('logs.colChannel')}</TableHead>
+              <TableHead className="text-[11px] text-muted-foreground">{t('logs.colEffort')}</TableHead>
               <TableHead className="text-[11px] text-muted-foreground">{t('accounts.colStatus')}</TableHead>
               <TableHead className="text-[11px] text-muted-foreground">{t('logs.colFirstToken')}</TableHead>
               <TableHead className="text-[11px] text-muted-foreground">{t('logs.colLatency')}</TableHead>
@@ -411,6 +414,15 @@ export default function LogsPage() {
                   {l.mapped_model && l.mapped_model !== l.model && (
                     <span className="ml-1 text-[11px] text-muted-foreground">→{l.mapped_model}</span>
                   )}
+                </TableCell>
+                {/* 渠道：由 UA 归类。同一把密钥可能被多个客户端用，
+                    「这次是谁在打」只能从 UA 看出来。归不出来就显示 —。 */}
+                <TableCell className="text-xs text-muted-foreground">
+                  {channelOf(l.ua) || '—'}
+                </TableCell>
+                {/* 思考强度：只显示客户端**显式**传的值。空 = 没传（不是用了默认档）。 */}
+                <TableCell className="text-xs text-muted-foreground">
+                  {l.reasoning_effort || '—'}
                 </TableCell>
                 <TableCell>
                   {l.status >= 200 && l.status < 300 ? (

@@ -707,6 +707,11 @@ export interface RequestLog {
   cache_miss_tokens: number | null;
   cache_write_tokens: number | null;
   ua: string | null;
+  /**
+   * 客户端**显式**传的思考强度（`reasoning_effort` / `reasoning.effort`）。
+   * null = 客户端没传，界面上显示「—」——不要拿它当「用了默认档」。
+   */
+  reasoning_effort: string | null;
   error: string | null;
   stream: boolean;
   /** 本次调用的真实扣费（上游 usage.credit）；null = 上游未返回，不是 0 */

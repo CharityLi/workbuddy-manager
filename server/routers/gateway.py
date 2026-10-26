@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import json
 import os
 from urllib.parse import urlsplit
@@ -21,6 +22,11 @@ from ..routers.security import get_config as get_security_config
 logger = logging.getLogger('workbuddy.gateway')
 
 router = APIRouter(tags=['gateway'])
+
+# 本次请求客户端显式传的思考强度。`_record` 在收尾时从这里取——它拿不到
+# 请求体（只拿到 model/usage 等解析结果），而四条协议路径的入口各自能拿到。
+# 只记**显式传入**的值：NULL 表示没传，界面上显示「—」，不等于"用了默认档"。
+_EFFORT: contextvars.ContextVar[str | None] = contextvars.ContextVar('wb_effort', default=None)
 
 
 def _oai_error(message: str, status: int = 400, err_type: str = 'invalid_request_error',
@@ -422,7 +428,7 @@ def _usage_cache(usage: dict | None) -> tuple[int | None, int | None, int | None
             _one('prompt_cache_write_tokens'))
 
 
-def _record(key: dict | None, ip: str, model: str, mapped: str, status: int, pt: int, ct: int, latency: int, ua: str | None, error: str | None, stream: bool, *, credit: float | None = None, first_token: int | None = None, usage: dict | None = None) -> None:
+def _record(key: dict | None, ip: str, model: str, mapped: str, status: int, pt: int, ct: int, latency: int, ua: str | None, error: str | None, stream: bool, *, credit: float | None = None, first_token: int | None = None, usage: dict | None = None, effort: str | None = None) -> None:
     """记录调用日志与用量。
 
     credit 为上游返回的真实扣费（usage.credit）。None 表示上游没给，
@@ -474,6 +480,7 @@ def _record(key: dict | None, ip: str, model: str, mapped: str, status: int, pt:
             latency_ms=latency,
             first_token_ms=first_token,
             ua=db._clean(ua, 512),
+            reasoning_effort=(db._clean(effort or _EFFORT.get() or '', 16) or None),
             error=db._clean(error, 500),
             stream=1 if stream else 0,
             credit=credit,
@@ -1053,6 +1060,14 @@ async def _chat(request: Request, upstream_path: str):
     body, err = await _read_json_body(request)
     if err:
         return err
+
+    # 客户端显式传的思考强度：OpenAI 风格在顶层 `reasoning_effort`，
+    # 少数客户端放在 `reasoning.effort`（Responses 风格）。两者都认。
+    if isinstance(body, dict):
+        raw_effort = body.get('reasoning_effort')
+        if raw_effort is None and isinstance(body.get('reasoning'), dict):
+            raw_effort = body['reasoning'].get('effort')
+        _EFFORT.set(str(raw_effort) if isinstance(raw_effort, (str, int, float)) else None)
 
     requested_model = body.get('model') if isinstance(body, dict) else None
     # model 必须是字符串：非字符串（对象/数组/数字）会让后面的 _map_model 与

@@ -727,6 +727,8 @@
     "rowAccount": "账号",
     "accountPending": "未采集（稍后自动回填）",
     "colLatency": "总耗时",
+    "colChannel": "渠道",
+    "colEffort": "思考强度",
     "streamShort": "流",
     "noCreditTitle": "上游未返回该项（不等于免费）",
     "emptyTitle": "暂无日志",

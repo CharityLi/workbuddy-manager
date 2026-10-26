@@ -146,6 +146,9 @@ CREATE TABLE IF NOT EXISTS request_logs (
   -- NULL = 未采集到（非流式请求，或该版本之前的历史记录）。
   first_token_ms    INTEGER,
   ua                TEXT,
+  -- 客户端显式传的思考强度（reasoning_effort / Anthropic 的 thinking 档位）。
+  -- 只记录「显式传了」的情况：没传 = NULL（界面上显示「—」），不是默认值。
+  reasoning_effort  TEXT,
   error             TEXT,
   stream            INTEGER DEFAULT 0,
   -- 本次调用的真实扣费（来自上游 usage.credit）；NULL = 上游未返回，不等于 0
@@ -597,6 +600,8 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ('usage_daily', 'credit', 'REAL NOT NULL DEFAULT 0'),
     # 首字延迟：可空（历史记录与非流式请求为 NULL）
     ('request_logs', 'first_token_ms', 'INTEGER'),
+    # 思考强度：只存显式传入的值，NULL = 客户端没传（区别于「传了默认档」）
+    ('request_logs', 'reasoning_effort', 'TEXT'),
     # 版本（cn / global）：界面按版本切换时日志与统计要跟着切。
     # 历史记录为 NULL —— 读的时候按 cn 归类（见 realm_of_model 的注释）。
     ('request_logs', 'realm', 'TEXT'),
@@ -1173,15 +1178,16 @@ def add_request_log(**fields: object) -> None:
     global _request_log_writes
     execute(
         'INSERT INTO request_logs(ts, key_id, ip, model, mapped_model, status, '
-        'prompt_tokens, completion_tokens, latency_ms, first_token_ms, ua, error, '
-        'stream, credit, realm, account, cache_hit_tokens, cache_miss_tokens, '
-        'cache_write_tokens) '
-        'VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'prompt_tokens, completion_tokens, latency_ms, first_token_ms, ua, '
+        'reasoning_effort, error, stream, credit, realm, account, cache_hit_tokens, '
+        'cache_miss_tokens, cache_write_tokens) '
+        'VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         (fields.get('ts'), fields.get('key_id'), fields.get('ip'),
          fields.get('model'), fields.get('mapped_model'), fields.get('status'),
          fields.get('prompt_tokens'), fields.get('completion_tokens'),
          fields.get('latency_ms'), fields.get('first_token_ms'), fields.get('ua'),
-         fields.get('error'), fields.get('stream'), fields.get('credit'),
+         fields.get('reasoning_effort'), fields.get('error'),
+         fields.get('stream'), fields.get('credit'),
          fields.get('realm'), fields.get('account'), fields.get('cache_hit_tokens'),
          fields.get('cache_miss_tokens'), fields.get('cache_write_tokens')),
     )

@@ -727,6 +727,8 @@
     "rowAccount": "アカウント",
     "accountPending": "未取得（後で自動補完）",
     "colLatency": "合計時間",
+    "colChannel": "チャネル",
+    "colEffort": "推論の強さ",
     "streamShort": "ストリーム",
     "noCreditTitle": "上流がこの項目を返していません（無料とは限りません）",
     "emptyTitle": "ログがありません",

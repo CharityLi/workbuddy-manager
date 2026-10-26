@@ -727,6 +727,8 @@
     "rowAccount": "帳號",
     "accountPending": "未擷取（稍後自動回填）",
     "colLatency": "總耗時",
+    "colChannel": "渠道",
+    "colEffort": "思考強度",
     "streamShort": "串流",
     "noCreditTitle": "上游未回傳該項（不等於免費）",
     "emptyTitle": "暫無日誌",

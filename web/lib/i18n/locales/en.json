@@ -754,6 +754,8 @@
     "rowAccount": "Account",
     "accountPending": "not captured yet (backfills automatically)",
     "colLatency": "Latency",
+    "colChannel": "Channel",
+    "colEffort": "Reasoning effort",
     "streamShort": "stream",
     "noCreditTitle": "Upstream did not return this field (not the same as free)",
     "emptyTitle": "No logs yet",
