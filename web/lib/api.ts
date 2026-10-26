@@ -288,6 +288,12 @@ export const accountApi = {
       failed: string[];
     }>('/api/accounts/refresh-credits?force=' + (force ? 'true' : 'false')
        + (upstreamId == null ? '' : `&upstream_id=${encodeURIComponent(String(upstreamId))}`)),
+  /** 解禁一个被封的账号；delayMinutes > 0 时改为入队，否则立即执行（会重启网关） */
+  unban: (file: string, upstreamId?: number | null, delayMinutes = 0) =>
+    post<{ok: boolean; queued: boolean; message?: string; unlock_at?: number}>(
+      `/api/accounts/${encodeURIComponent(file)}/unban` +
+      (upstreamId == null ? '' : `?upstream_id=${encodeURIComponent(String(upstreamId))}`),
+      {delay_minutes: delayMinutes}),
   /** 「账号 × 模型」主动探测：真发最小对话请求，返回每个组合的可用性与耗时 */
   probeModels: (files: string[], models: string[], upstreamId?: number | null) =>
     post<{

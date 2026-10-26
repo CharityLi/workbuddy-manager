@@ -206,6 +206,22 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_logs(ts);
 
+CREATE TABLE IF NOT EXISTS unban_queue (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  uid        TEXT    NOT NULL,
+  file       TEXT    NOT NULL DEFAULT '',  -- 账号凭证文件名，便于重启后仍能定位
+  nickname   TEXT    NOT NULL DEFAULT '',
+  reason     TEXT    NOT NULL DEFAULT '',  -- 为什么被封（12153 / 手动 / 其他），便于事后回看
+  unlock_at  INTEGER NOT NULL,             -- 到点才执行；立即解禁也写当前时间
+  status     TEXT    NOT NULL DEFAULT 'pending',  -- pending / running / done / failed
+  note       TEXT    NOT NULL DEFAULT '',  -- 执行结果或失败原因
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_unban_due ON unban_queue(status, unlock_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_unban_uid_pending
+  ON unban_queue(uid) WHERE status = 'pending';
+
 CREATE TABLE IF NOT EXISTS ip_rules (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   kind       TEXT    NOT NULL,

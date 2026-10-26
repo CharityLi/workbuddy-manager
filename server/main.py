@@ -21,7 +21,7 @@ from .routers import (
     usage_history,
     cache_rate,
 )
-from .services import (accountlog, cooling, dailyplan, pgsync, renew, tasklog,
+from .services import (accountlog, cooling, dailyplan, pgsync, renew, tasklog, unbanqueue,
                        taskrun, upstreamwatch)
 
 # 最早时刻把标准输出/错误钉成 UTF-8：Windows 中文区域默认按 cp936 编码，日志里
@@ -64,6 +64,9 @@ async def lifespan(app: FastAPI):
     # 每日任务计划（签到 / 领奖 / 做任务）：管理端自己的调度器，把「一键」动作
     # 做成每天到点自动跑。默认全部关闭，由用户在账号页显式开启（full 有风控风险）。
     dailyplan.start_scheduler()
+    # 解禁队列：被封（12153）的账号到点自动解禁。解禁要重启网关（上游只在
+    # 启动时读 state.json），所以队列一次只处理一个，失败留痕不自动重试。
+    unbanqueue.start_scheduler()
     # 请求日志的「账号」回填（issue #69）：账号是上游选的、不在响应里回传，
     # 只能从它的容器日志里读出来再按时间对回去（见 accountlog 的说明）。
     accountlog.start_collector()
@@ -81,6 +84,7 @@ async def lifespan(app: FastAPI):
         renew.stop_scheduler()
         cooling.stop_scheduler()
         dailyplan.stop_scheduler()
+        unbanqueue.stop_scheduler()
         accountlog.stop_collector()
         pgsync.stop_scheduler()
         upstreamwatch.stop_scheduler()

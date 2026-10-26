@@ -18,7 +18,7 @@ from .. import config, db, security, upstreamsvc
 from ..iputil import client_ip
 from ..services import (
     credits as creditsvc, dailyplan, displayname, modelcatalog, reload, renew,
-    tasklog, taskrun, tencent, usage_ledger as usageledger, wb2api,
+    tasklog, taskrun, tencent, unbanqueue, usage_ledger as usageledger, wb2api,
 )
 from ..services.realm import realm_of, supports_checkin
 
@@ -1739,6 +1739,66 @@ def upstream_logs(limit: int = 200, user: dict = Depends(security.current_user))
         if any(k in ln.lower() for k in keywords)
     ]
     return {'available': lines != [], 'lines': interesting, 'total': len(lines)}
+
+
+@router.get('/accounts/unban-queue')
+async def unban_list(status: str | None = Query(None),
+                     user: dict = Depends(security.require_admin)) -> dict:
+    """解禁队列。默认返回全部近 200 条，便于回看「什么时候解禁了谁、成没成」。"""
+    return {'items': unbanqueue.items(status)}
+
+
+@router.post('/accounts/unban-queue')
+async def unban_add(payload: dict = Body(...),
+                    user: dict = Depends(security.require_admin)) -> dict:
+    """把账号加入解禁队列。`delay_minutes` 缺省 0 = 下一轮立刻执行。"""
+    uid = str(payload.get('uid') or '').strip()
+    if not uid:
+        raise HTTPException(status_code=400, detail='uid 不能为空')
+    delay = int(payload.get('delay_minutes') or 0)
+    unlock_at = int(time.time()) + max(0, delay) * 60
+    try:
+        saved = unbanqueue.add(
+            uid,
+            file=str(payload.get('file') or ''),
+            nickname=str(payload.get('nickname') or ''),
+            reason=str(payload.get('reason') or ''),
+            unlock_at=unlock_at,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {'ok': True, **saved}
+
+
+@router.delete('/accounts/unban-queue/{qid}')
+async def unban_remove(qid: int, user: dict = Depends(security.require_admin)) -> dict:
+    """撤销一条**还没执行**的解禁。已在执行/已完成的保留做审计。"""
+    return {'ok': unbanqueue.remove(qid)}
+
+
+@router.post('/accounts/{filename}/unban')
+async def account_unban(filename: str, payload: dict | None = Body(None),
+                        upstream_id: int | None = Query(None),
+                        user: dict = Depends(security.require_admin)) -> dict:
+    """解禁单个账号：`delay_minutes` > 0 时入队，否则立即执行一次。
+
+    立即执行会重启网关（几秒空窗）——上游只在启动时读 state.json，
+    没有别的办法让它重新认这个账号。
+    """
+    raw = _load(filename, _require_dir(_group(upstream_id)))
+    acct = raw.get('account') or {}
+    uid = str(acct.get('uid') or '')
+    if not uid:
+        raise HTTPException(status_code=400, detail='该账号缺少 uid，无法解禁')
+    delay = int((payload or {}).get('delay_minutes') or 0)
+    if delay > 0:
+        saved = unbanqueue.add(uid, file=filename,
+                               nickname=str(acct.get('nickname') or ''),
+                               reason=str((payload or {}).get('reason') or ''),
+                               unlock_at=int(time.time()) + delay * 60)
+        return {'ok': True, 'queued': True, **saved}
+    ok, message, changed = await wb2api.force_enable_account(uid)
+    return {'ok': ok, 'queued': False, 'message': message, 'changed': changed}
 
 
 # 「账号 × 模型」主动探测的边界。单次最多 60 个组合——再多就不是"探测"而是压测，

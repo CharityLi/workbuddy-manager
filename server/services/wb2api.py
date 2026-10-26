@@ -915,6 +915,98 @@ def set_account_cooling_state(
     }
 
 
+def set_account_enabled_state(uid: str) -> dict:
+    """把一个账号在 state.json 里恢复成「可被选号」的干净状态。
+
+    解禁要清的是一整套相互牵连的标记，只把 `disabled` 置 false 不够：
+    上游选号时还会看 `manual_disabled`、`until`、`cool_kind`，以及连败计数——
+    其中任何一个残留，账号就仍然不会进池（表现为"解禁了但还是没流量"）。
+    `manual_reason` 必须删掉，否则到期清理任务会把它当成"手动冷却"再收一遍。
+
+    调用方必须先停止上游进程，否则周期 Flush 会用内存快照覆盖这里写的内容。
+    """
+    uid = str(uid or '').strip()
+    if not uid:
+        raise ValueError('uid 为空')
+    path = upstream_state_file()
+    try:
+        state = json.loads(path.read_text(encoding='utf-8'))
+    except FileNotFoundError as exc:
+        raise ValueError(f'未找到上游状态文件：{path}') from exc
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError(f'上游状态文件不是合法 JSON（{path}）：{exc}') from exc
+    if not isinstance(state, dict):
+        state = {'accounts': {}}
+    accounts = state.setdefault('accounts', {})
+    if not isinstance(accounts, dict):
+        accounts = state['accounts'] = {}
+
+    backup = path.with_name(path.name + '.unban.bak')
+    shutil.copy2(path, backup)
+
+    account = accounts.get(uid)
+    if not isinstance(account, dict):
+        account = {}
+    before = {
+        'disabled': account.get('disabled'),
+        'manual_disabled': account.get('manual_disabled'),
+        'until': account.get('until'),
+        'reason': account.get('reason'),
+    }
+    account['disabled'] = False
+    account['manual_disabled'] = False
+    account['until'] = '0001-01-01T00:00:00Z'
+    account['cool_kind'] = 0
+    account['reason'] = ''
+    account.pop('manual_reason', None)
+    account['soft_streak'] = 0
+    account['session_dead_fails'] = 0
+    account['consecutive_fails'] = 0
+    accounts[uid] = account
+
+    _atomic_write_json(path, state)
+    return {'uid': uid, 'state_file': str(path), 'backup': str(backup), 'before': before}
+
+
+async def force_enable_account(uid: str) -> tuple[bool, str, dict]:
+    """解禁一个账号并重启上游使其生效。
+
+    与 `force_set_account_cooling` 同一套路（停 → 改 → 启 → 等就绪），
+    因为上游只在启动时读 state.json，在线改文件会被内存快照覆盖。
+    """
+    uid = str(uid or '').strip()
+    if not uid:
+        return False, 'uid 为空', {}
+
+    stopped, stop_message = await _set_upstream_running(False)
+    if not stopped:
+        return False, f'停止上游失败：{stop_message}', {}
+
+    try:
+        changed = set_account_enabled_state(uid)
+    except Exception as exc:  # noqa: BLE001
+        await _set_upstream_running(True)
+        return False, f'解禁失败：{exc}', {}
+
+    started, start_message = await _set_upstream_running(True)
+    if not started:
+        return False, f'状态已恢复，但启动上游失败：{start_message}', changed
+
+    status = await _wait_for_upstream()
+    if not status.get('connected'):
+        return False, f'上游重启后未就绪：{status.get("error") or "未知错误"}', changed
+    account = next(
+        (x for x in status.get('accounts') or [] if str(x.get('uid') or '') == uid),
+        None,
+    )
+    if account is None:
+        return False, '状态已恢复且上游已启动，但账号尚未进入账号池', changed
+    if account.get('disabled') or account.get('manual_disabled') or account.get('cooling'):
+        return False, '上游已重启，但账号仍处于禁用/冷却状态', changed
+
+    return True, '已解禁，上游已重启生效', changed
+
+
 async def _set_upstream_running(running: bool) -> tuple[bool, str]:
     """停止或启动上游，供需要离线修改 state.json 的运维动作使用。"""
     if config.WB2API_MODE == 'native':

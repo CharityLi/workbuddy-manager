@@ -27,6 +27,7 @@ import {
   Scale,
   FolderInput,
   TriangleAlert,
+  Unlock,
 } from 'lucide-react';
 import {useHeartbeat} from '@/lib/use-heartbeat';
 import {useAsyncAll} from '@/lib/use-async-data';
@@ -993,6 +994,29 @@ export default function AccountsPage() {
     // 一条不换行一样会把图标挤出格子（issue #151 的后续反馈）。
     return (
       <div className="flex flex-wrap justify-end gap-1">
+        {/* 解禁：只对「被上游自动禁用」的号显示（12153 连败 / 11140 被封）。
+            点击会重启网关让 state.json 的改动生效，所以文案里说清会断几秒。 */}
+        {autoDisabled && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 rounded-md"
+            title={t('accounts.unbanTitle')}
+            disabled={busy}
+            onClick={async () => {
+              try {
+                const r = await accountApi.unban(a.file, groupId);
+                if (r.ok) notify.ok(t('accounts.unbanOk'), r.message || '');
+                else notify.err(t('accounts.unbanFail'), r.message || '');
+                reloadAll();
+              } catch (e) {
+                notify.err(errText(e));
+              }
+            }}
+          >
+            <Unlock className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+          </Button>
+        )}
         {/* 备注（issue #67）：只动本端库里的一行文本，不碰上游、不重启容器，
             所以放在最前——它是最轻的动作。任何状态下的账号都能写备注：
             停用的号恰恰更容易忘了它是谁。 */}
