@@ -23,9 +23,17 @@
  * 3. **探测只判可达性，不判业务健康**。`/healthz` 在上游无可用账号时返回 503，
  *    但那是业务状态，网络明明是通的。所以用 `mode:'no-cors'` 只确认「连上了」，
  *    状态码一律不看（no-cors 下本来也读不到）。
+ * 4. **已登录就不换入口**（2026-10-26 补）。切 host 等于切站点：`wb_session`
+ *    cookie 按域名/主机隔离，`100.x` 上登录的会话在 `192.168.x` 上一个字节都带
+ *    不过去。原来的逻辑只看延迟，于是「书签在 Tailscale、人在家里 WiFi → 探测
+ *    发现局域网快 5 倍 → 跳过去」，用户看到的是**一进面板就被踢去登录页**，
+ *    还会显示「会话已过期」，而他刚才是登录着的——被误当成「重启导致登录态丢失」。
+ *    现在换入口前先问一次同源 `/api/me`：已登录（200）就原地进入，只有当前入口
+ *    **没登录**（换过去不亏）时才按速度切。确实要强制换用 `?switch=1`。
  */
 
 import {useCallback, useEffect, useRef, useState} from 'react';
+import {BASE_PATH} from '@/lib/base-path';
 
 interface Candidate {
 	host: string;
@@ -87,6 +95,22 @@ async function probe(host: string, port: number): Promise<number | null> {
 	}
 }
 
+/**
+ * 当前入口（当前 host）上有没有有效登录态。
+ *
+ * 直接 `fetch` 而不是走 `lib/api.ts` 的 axios 实例：那个实例的 401 拦截器会
+ * `window.location.href = /login`，在这里调它会把自己踢走，探测页就白做了。
+ * 这里只要一个布尔值。
+ */
+async function hasSession(): Promise<boolean> {
+	try {
+		const res = await fetch(`${BASE_PATH}/api/me`, {credentials: 'include', cache: 'no-store'});
+		return res.ok;
+	} catch {
+		return false;
+	}
+}
+
 export default function RoutePage() {
 	const [rows, setRows] = useState<Row[]>([]);
 	const [port, setPort] = useState(3000);
@@ -117,7 +141,7 @@ export default function RoutePage() {
 		(async () => {
 			let data: CandidatesResponse;
 			try {
-				const res = await fetch('/route/candidates', {cache: 'no-store'});
+				const res = await fetch(`${BASE_PATH}/route/candidates`, {cache: 'no-store'});
 				data = await res.json();
 			} catch {
 				if (!cancelled) {
@@ -212,6 +236,14 @@ export default function RoutePage() {
 				: baseline !== null
 					? `当前入口 ${baseline} ms，其他候选无显著优势`
 					: `当前入口 ${currentHost ?? best.host}`;
+
+			// ★ 换入口 = 换站点（见文件头第 4 条约束）。已登录时一律原地进入：
+			//   否则用户会莫名其妙被登出，还会看到「会话已过期」。
+			const forceSwitch = new URLSearchParams(window.location.search).get('switch') === '1';
+			if (!forceSwitch && target !== currentHost && (await hasSession())) {
+				why = `当前入口已登录，换入口会丢失登录态（需重新登录），故原地进入（${baseline} ms）`;
+				target = currentHost ?? target;
+			}
 
 			// 防循环：同一会话内已经跳过同一个目标，就改回当前入口。
 			// 注意这里**不是**「停止跳转」——停止跳转等于把用户留在页面上，
