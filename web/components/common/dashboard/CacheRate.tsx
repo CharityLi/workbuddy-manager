@@ -63,9 +63,6 @@ export function CacheRate({className}: {className?: string}) {
           <Gauge className="h-4 w-4" />
           命中率统计
         </div>
-        <div className="text-[11px] text-muted-foreground">
-          今日 · 按缓存命中 tokens 计
-        </div>
       </div>
 
       <div className="flex items-center gap-4">
