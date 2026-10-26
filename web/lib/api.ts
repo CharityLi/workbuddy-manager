@@ -121,7 +121,10 @@ http.interceptors.response.use(
       // 路径必须带 basePath：basePath 只自动作用于 next/router 的跳转，裸的
       // window.location.href 会跳到域名根（通常 404）—— 登录页与公开页都一样。
       const loginPath = `${BASE_PATH}/login`;
-      const publicPaths = [loginPath, `${BASE_PATH}/claim`];
+      // `route` 是移动端自动选路页（2026-10-26）：它必须能在**未登录**状态下打开。
+      // 否则「书签存 Tailscale 地址 → 打开后自动切到更快的局域网」这条路径，
+      // 一进页面就被这里踢到登录页 —— 用户看到的是「选路坏了」，实际是 401 拦截。
+      const publicPaths = [loginPath, `${BASE_PATH}/claim`, `${BASE_PATH}/route`];
       // 根路径只是「跳到 /dashboard」的中转页，不在这里拦（否则首次访问者
       // 会先被重定向到登录页并显示「会话已过期」）。
       const isRoot = path === BASE_PATH || path === `${BASE_PATH}/`;
