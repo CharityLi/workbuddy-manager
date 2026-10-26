@@ -42,11 +42,14 @@ async def login(request: Request) -> JSONResponse:
 
     cfg = security.load_users()
     user = next((u for u in cfg.get('users', []) if u.get('username') == username), None)
-    # 用户不存在时也走一次同样成本的校验：否则「不存在」秒回、「存在但密码错」慢一截，
-    # 响应时间就成了用户名枚举的信道。DUMMY_PWD_HASH 是固定的假哈希，永不匹配。
-    stored = (user or {}).get('pwd_hash') or security.DUMMY_PWD_HASH
-    ok = security.verify_pwd(password, stored)
-    if not user or not ok:
+    # 用户不存在时也跑一遍 PBKDF2（对哑哈希）：短路跳过会让响应快慢暴露
+    # 用户名是否存在（260000 轮是毫秒级的时间差，公网可测）。
+    if user:
+        creds_ok = security.verify_pwd(password, user.get('pwd_hash', ''))
+    else:
+        security.dummy_verify(password)
+        creds_ok = False
+    if not creds_ok:
         # 同时记 IP 与用户名：前者防单机爆破，后者防换 IP 打同一账号
         security.record_fail(ip, username)
         # 登录失败也要留痕：本次事故中攻击者拿到了会话，但服务端没有任何记录

@@ -59,8 +59,11 @@ class CreditsHourlyTest(unittest.TestCase):
         self.assertAlmostEqual(out['hourly'][0]['income'], 0.0)
 
     def test_days_multi_has_no_hourly(self) -> None:
+        # 上游 v2.11.0 的契约：多日视图**不带** hourly 键（配 granularity='day'），
+        # 而不是带一个空列表——前端按 `Array.isArray` 兜底，两种都不炸，以较新的为准。
         out = stats.credits_flow(days=7, realm=None, user={'role': 'admin'})
-        self.assertEqual(out['hourly'], [], '多天视图不返回小时桶')
+        self.assertNotIn('hourly', out, '多天视图不返回小时桶')
+        self.assertEqual(out['granularity'], 'day')
 
     def test_hourly_totals_match_daily_total(self) -> None:
         t0 = _today_start()

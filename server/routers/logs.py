@@ -235,6 +235,13 @@ def list_logs(
             # 账号是采集上游日志后按时间对回来的，比请求本身晚几秒，
             # 所以刚打完的请求这一列可能是空的（界面显示「—」，刷新即可）。
             'account': _fill_account(r),
+            # 思考强度（reasoning_effort）：客户端显式传的档位；NULL=没传/旧记录。
+            # 本地面板写的是 reasoning_effort 列，上游客户端写 effort 列，两者都返回：
+            # 旧前端读 reasoning_effort，新前端读 effort，缺一个都会显示成「—」。
+            'effort': r['effort'],
+            'reasoning_effort': r['reasoning_effort'],
+            # 客户端渠道（issue #233）：UA 归类；NULL=该列上线前的旧记录。
+            'channel': r['channel'],
             # 输入侧命中缓存的 token 数。NULL 与 0 含义不同：
             # NULL = 上游没给这个字段，0 = 这次确实没命中（见 db 的列说明）。
             'cache_hit_tokens': r['cache_hit_tokens'],

@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+import json
 import logging
 
 from . import config, db, redpacket, security
@@ -20,9 +21,10 @@ from .routers import (
     proxies, settings, stats, system, tokens, upstreams,
     usage_history,
     cache_rate, watch,
+    watchdog as watchdog_router,
 )
 from .services import (accountlog, cooling, dailyplan, pagewatch, pgsync, renew, tasklog, unbanqueue,
-                       taskrun, upstreamwatch)
+                       taskrun, upstreamwatch, watchdog)
 
 # 最早时刻把标准输出/错误钉成 UTF-8：Windows 中文区域默认按 cp936 编码，日志里
 # 一旦出现 emoji（账号昵称就可能带）就会抛 UnicodeEncodeError —— 与「成长任务」
@@ -44,6 +46,7 @@ async def lifespan(app: FastAPI):
                      '中修改；本次生产事故的入口就是 admin123。',
                      '、'.join(weak_admins))
     _warn_if_exposed()
+    _warn_weak_upstream_key()
     # 给「抽奖码」这一列上线之前建的红包补码（幂等）：没有码就拼不出抽奖链接，
     # 等于那些红包只能自己发 key、没法让大家抽。
     filled = redpacket.backfill_codes()
@@ -78,6 +81,9 @@ async def lifespan(app: FastAPI):
     # PostgreSQL 定时备份（用户反馈：怕服务器暴雷丢数据）。默认关闭 ——
     # 只有配好连接、打开开关并设了间隔才会真的推数据出去。
     pgsync.start_scheduler()
+    # 上游网页改版监控：抓结构指纹 → 变化时 LLM 判读 / 查活动补偿 → 邮件上报。
+    # 默认关闭；邮件启用前会先探 SMTP 出口（出口不通就不给开）。
+    watchdog.start_scheduler()
     try:
         yield
     finally:
@@ -91,9 +97,37 @@ async def lifespan(app: FastAPI):
         accountlog.stop_collector()
         pgsync.stop_scheduler()
         upstreamwatch.stop_scheduler()
+        watchdog.stop_scheduler()
         # 出站客户端是共享的（issue #144：Windows 上每次新建要 ~1 秒），
         # 退出时统一关掉，别把连接池与 SSL 上下文丢在原地。
         await config.close_clients()
+
+
+def _warn_weak_upstream_key() -> None:
+    """上游 api_key 为空或仍是样例值时点名警告（2026-10-21 安全检查 H3）。
+
+    随包上游 workbuddy2api 的鉴权是「api_key 非空才启用」：为空时 /v1 对话、
+    /status、统计、管理端点全部无需凭据即可访问，且它的启动日志只打一个布尔
+    值，用户很难察觉。本面板是它的前置入口，部署形态下端口已收敛回环，但
+    只要 7863 被改绑到对外地址（或同机其他进程可达），弱 key 就等于公开。
+    读不到配置（本地开发没有上游）时静默跳过。
+    """
+    try:
+        cfg = json.loads(config.UPSTREAM_CONFIG.read_text(encoding='utf-8'))
+    except Exception:  # noqa: BLE001
+        return
+    key = str(cfg.get('api_key') or '').strip()
+    if not key:
+        logger.error(
+            '上游 config.json 的 api_key 为空：%s 的全部端点（对话、状态、统计、'
+            '管理）此刻不需要任何凭据。请在「设置 → 上游」立即配置强 api_key。',
+            config.UPSTREAM_CONFIG,
+        )
+    elif key.lower() in ('test_key', 'changeme', 'your_api_key'):
+        logger.error(
+            '上游 api_key 仍是样例值 %r：等同于公开，任何知道默认值的人都能'
+            '消耗账号池积分。请立即改为强随机值。', key,
+        )
 
 
 def _warn_if_exposed() -> None:
@@ -115,7 +149,7 @@ def _warn_if_exposed() -> None:
 
 app = FastAPI(
     title='WorkBuddy Manager',
-    version='2.9.0',
+    version='2.11.0',
     lifespan=lifespan,
     # 生产环境默认关闭交互式文档与 OpenAPI 描述：
     # 它们会把管理接口全貌（路径、参数、结构）暴露给任何未认证访问者，
@@ -139,9 +173,25 @@ def check_cors_origins(origins: list[str]) -> None:
         )
 
 
+def _validate_cors_origins(origins: list[str]) -> None:
+    """`*` 与凭据模式互斥：命中直接抛错，让服务起不来（配置错误要在启动时暴露）。
+
+    上游 v2.11.0 的同名入口。规则与 `check_cors_origins` 完全一致 —— 只是历史
+    上两条分支各写了一份，保留两个名字是为了外部脚本 / 测试的导入路径不断。
+    """
+    check_cors_origins(origins)
+
+
 if config.CORS_ORIGINS:
-    # 只允许**明确列出的**来源。留空（默认）即同源部署，安全。
-    check_cors_origins(config.CORS_ORIGINS)
+    # 只允许**明确列出的**来源。绝不要把 WB_CORS_ORIGINS 设成 `*`：
+    # 本应用用 Cookie 认证管理端，而 Starlette 在 allow_credentials=True 时
+    # 会把 `*` 回显成请求方 Origin（不是字面 `*`），于是**任意网站**都能带着
+    # 管理员的 Cookie 调 /api/* 并读到响应 —— 等于把控制台交给任何网页。
+    # 留空（默认）即同源部署，安全。
+    #
+    # 这是"误配即全面接管"的开关，因此检测到 `*` 直接拒绝启动，而不是只记
+    # 一条日志继续跑：日志拦不住照抄配置的人，历史上确有人这么配过。
+    _validate_cors_origins(config.CORS_ORIGINS)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=config.CORS_ORIGINS,
@@ -178,7 +228,9 @@ class BodyLimitMiddleware:
          把下游的响应改写为 413。
 
     为什么必须做在读取层：只查声明长度是绕得过的（分块请求、或不声明长度），
-    而那时 body 已经被完整缓冲进内存 —— 那正是这条中间件要防的事。
+    而那时 body 已经被完整缓冲进内存 —— 那正是这条中间件要防的事。上游 v2.11.0
+    把这一半单独实现成 `ApiBodyLimitMiddleware`（见下），两条都保留：本类仍先做
+    声明长度预检，读取层两侧同时计数，谁先命中都会变成 413。
 
     为什么用纯 ASGI 而不是 `@app.middleware('http')`：业务代码会 `try: await
     request.json()`，在 receive 里抛异常会被它当成「格式错误」吞成 400。所以这里
@@ -228,6 +280,70 @@ class BodyLimitMiddleware:
             await _too_large_response(limit)(scope, receive, send)
 
 
+class _ApiBodyTooLarge(Exception):
+    """内部信号：/api/* 请求体在读取层超过上限。
+
+    注意：路由里 `except Exception` 很常见（`/api/login` 解析失败就转 400），
+    所以它不一定能到达中间件变成 413 —— 被就地转成 400 也是**安全**的：
+    超限时读取已经中止，内存不再增长。声明 413 只在这条异常成功穿透路由时生效。
+    """
+
+
+class ApiBodyLimitMiddleware:
+    """在 ASGI receive 层强制 `/api/*` 的请求体上限。
+
+    为什么上面的 Content-Length 预检不够：分块传输（chunked）没有该头，
+    `declared` 为 0 直接放行；而 handler 里的 `await request.json()` 会把整个
+    body 无上限地聚合进内存（Starlette 的 `Request.body()` 逐块追加，uvicorn
+    自身也不设请求体上限）。`/api/login` 是未鉴权可达的，少量并发分块大请求
+    就能把这个进程（管理面、/v1 网关、静态托管同体）的内存吃光。
+    网关那条路早有同款读取层限额（`gateway._read_json_body`），这里补管理面。
+
+    实现：包住 receive 通道逐块计数，超限即抛内部异常中止 handler，由本层
+    （异常向外传播的必经之路）直接发 413。此时 handler 还在读 body、尚未
+    开始写响应，所以 413 是该连接上唯一的响应，不会出现"半个响应 + 413"。
+    """
+
+    def __init__(self, app, *, limit: int = MAX_API_BODY_BYTES,
+                 package_limit: int = MAX_PACKAGE_BODY_BYTES,
+                 package_paths: tuple = PACKAGE_UPLOAD_PATHS) -> None:
+        self.app = app
+        self.limit = limit
+        self.package_limit = package_limit
+        self.package_paths = package_paths
+
+    async def __call__(self, scope, receive, send):
+        if scope.get('type') != 'http' or not scope.get('path', '').startswith('/api/'):
+            await self.app(scope, receive, send)
+            return
+        limit = (self.package_limit
+                 if scope['path'] in self.package_paths else self.limit)
+        received = 0
+
+        async def limited_receive():
+            nonlocal received
+            message = await receive()
+            if message.get('type') == 'http.request':
+                received += len(message.get('body') or b'')
+                if received > limit:
+                    raise _ApiBodyTooLarge()
+            return message
+
+        try:
+            await self.app(scope, limited_receive, send)
+        except _ApiBodyTooLarge:
+            response = JSONResponse(
+                {'detail': f'请求体过大（上限 {limit // 1024 // 1024} MB）'},
+                status_code=413,
+            )
+            await response(scope, receive, send)
+
+
+app.add_middleware(ApiBodyLimitMiddleware)
+# 顺序有讲究：add_middleware 是**前插**，最后加的在最外层。本地的 BodyLimitMiddleware
+# 必须在 ApiBodyLimitMiddleware 之外——它超限时把 body 截成空体并在 send 处改写成
+# 413；如果反过来（上游那层在外），它会直接抛 _ApiBodyTooLarge，而 `/api/login` 的
+# `except Exception` 会把它就地处成 400，分块超限的用例就看不到 413 了。
 app.add_middleware(BodyLimitMiddleware)
 
 # ── 路由注册顺序很重要：先 API / 网关，最后挂静态文件 ──
@@ -252,6 +368,7 @@ app.include_router(settings.router)
 app.include_router(proxies.router)
 # PostgreSQL 异地备份：把本地数据镜像出去、需要时拉回来（见 services/pgsync）
 app.include_router(pgsync_router.router)
+app.include_router(watchdog_router.router)
 # 多上游（账号池分组）：密钥绑定上游 = 请求走那个池，见 upstreamsvc
 app.include_router(upstreams.router)
 app.include_router(system.router)

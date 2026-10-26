@@ -33,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from pathlib import Path
 
 from .. import db, upstreamsvc
 from . import taskrun
@@ -143,82 +144,130 @@ def mark_ran(task: str, now: int | None = None) -> dict:
     return plan
 
 
+def _task_groups() -> list[dict]:
+    """所有配置了本地账号目录的分组（默认分组在前，按目录去重）。
+
+    没有账号目录的分组只做密钥转发，面板无法在其中执行签到/领奖这类写操作，
+    直接排除；否则每条任务都会为它报一次「没有可执行账号」的噪声。
+    """
+    out: list[dict] = []
+    seen: set[str] = set()
+    for g in upstreamsvc.list_upstreams():
+        raw = str(g.get('auth_dir') or '').strip()
+        if not raw:
+            continue
+        try:
+            key = str(Path(raw).resolve())
+        except OSError:
+            key = raw
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(g)
+    return out
+
+
 async def run_task(task: str) -> tuple[bool, str]:
     """**遍历所有分组**各跑一遍同一个任务，汇总成一行的成败与说明。
 
     为什么要遍历：分组是独立的上游实例、独立的账号目录，签到和补偿都必须
-    各自打各自的上游。只跑默认分组会让「另一个分组的账号今天没签」这件事
-    完全静默——用户看不到任何异常。
+    各自打各自的上游；领奖 / 做任务同样按分组串行执行（issue #274）。只跑
+    默认分组会让「另一个分组的账号今天没签」这件事完全静默——用户看不到异常。
 
-    `claim` / `full` 两种走的是 taskrun（它目前只认默认上游的账号目录），
-    多分组时在文案里点明，避免把「只跑了一个分组」当成「全都跑过了」。
+    单个分组抛异常不拖垮其余分组：记一条「异常：…」继续跑下一个。
     """
     if task not in _TASKS:
         raise ValueError(f'未知任务：{task}')
-
-    ups = upstreamsvc.list_upstreams()
-    parts: list[str] = []
-    failed_any = False
-    for up in ups:
-        upstream_id = up.get('id')
-        label = str(up.get('name') or '默认上游')
-        try:
-            ok, msg = await _run_one(task, upstream_id)
-        except Exception as exc:  # noqa: BLE001
-            ok, msg = False, f'异常：{exc}'
-        if not ok:
-            failed_any = True
-        parts.append(f'{label}: {msg}')
-
-    if task in ('claim', 'full') and len(ups) > 1:
-        parts.append('（领奖任务当前只覆盖默认上游）')
-    return not failed_any, '；'.join(parts)
-
-
-async def _run_one(task: str, upstream_id: int | None) -> tuple[bool, str]:
-    """在**单个分组**上执行一次任务，返回 `(是否触发成功, 说明)`。
-
-    `taskrun` 一次只允许一个任务在跑：claim / full 若撞上正在执行的任务会返回
-    False（如实转达，不假装成功）。
-    """
-    if task not in _TASKS:
-        raise ValueError(f'未知任务：{task}')
+    groups = _task_groups()
+    if not groups:
+        return False, '没有配置本地账号目录的分组，无可执行对象'
     if task == 'checkin':
         # 延迟导入：routers.accounts 顶层 import 了 taskrun，这里再顶层
         # import accounts 会成环。同理这里的 `user` 只是路由的函数签名要求，
         # 函数体不用它（依赖注入由框架负责，后台任务直接给个管理员身份）。
         from ..routers import accounts as accounts_router  # noqa: PLC0415
-        out = await accounts_router.checkin_all(upstream_id=upstream_id,
-                                                user={'role': 'admin'})
-        total = out.get('total', 0)
-        ok_n = out.get('succeeded', 0)
-        already = out.get('already', 0)
-        failed = out.get('failed', 0)
-        msg = f'签到 {ok_n}/{total} 成功'
-        if already:
-            msg += f'（{already} 个今日已签）'
+        total = ok_n = already = failed = 0
+        per_group: list[str] = []
+        for g in groups:
+            try:
+                out = await accounts_router.checkin_all(upstream_id=g.get('id'),
+                                                        user={'role': 'admin'})
+            except Exception as exc:  # noqa: BLE001
+                failed += 1
+                per_group.append(f"{g.get('name')} 异常：{exc}")
+                continue
+            t, s = out.get('total', 0), out.get('succeeded', 0)
+            total += t
+            ok_n += s
+            already += out.get('already', 0)
+            failed += out.get('failed', max(0, t - s))
+            if len(groups) > 1:
+                per_group.append(f"{g.get('name')} {s}/{t}")
+        message = f'签到 {ok_n}/{total} 成功' + (f'（{already} 个今日已签）' if already else '')
         if failed:
             # 失败数单独报出来：混在「成功」里会让用户以为全签上了
-            msg += f'，{failed} 个失败'
-        return not failed, msg
+            message += f'，{failed} 个失败'
+        if per_group:
+            message += '（' + '；'.join(per_group) + '）'
+        return failed == 0, message
     if task == 'compensation':
         from ..routers import accounts as accounts_router  # noqa: PLC0415
-        out = await accounts_router.claim_compensation_all(upstream_id=upstream_id,
-                                                           user={'role': 'admin'})
+        claimed = credit = already = nothing = failed = 0
+        per_group: list[str] = []
+        for g in groups:
+            try:
+                out = await accounts_router.claim_compensation_all(upstream_id=g.get('id'),
+                                                                   user={'role': 'admin'})
+            except Exception as exc:  # noqa: BLE001
+                failed += 1
+                per_group.append(f"{g.get('name')} 异常：{exc}")
+                continue
+            claimed += out.get('claimed', 0)
+            credit += out.get('credit', 0)
+            already += out.get('already', 0)
+            nothing += out.get('nothing', 0)
+            failed += out.get('failed', 0)
+            if len(groups) > 1:
+                per_group.append(f"{g.get('name')} 领到 {out.get('claimed', 0)} 个")
         parts = []
-        if out.get('claimed'):
-            parts.append(f"{out['claimed']} 个领到 +{out.get('credit', 0)} 积分")
-        if out.get('already'):
-            parts.append(f"{out['already']} 个已领过")
-        if out.get('nothing'):
-            parts.append(f"{out['nothing']} 个无可领")
-        if out.get('failed'):
-            parts.append(f"{out['failed']} 个失败")
+        if claimed:
+            parts.append(f'{claimed} 个领到 +{credit} 积分')
+        if already:
+            parts.append(f'{already} 个已领过')
+        if nothing:
+            parts.append(f'{nothing} 个无可领')
+        if failed:
+            parts.append(f'{failed} 个失败')
         message = '；'.join(parts) or '没有可执行的账号'
+        if per_group:
+            message += '（' + '；'.join(per_group) + '）'
         # 全都「无可领」是正常态（补偿是一次性的），不算失败
-        return not out.get('failed'), message
+        return failed == 0, message
+    # claim / full：脚本一次只能跑一个账号目录，按分组串行执行并等待结束
+    # （issue #274：自动任务要覆盖所有分组，而不只是默认分组）。
     mode = 'claim' if task == 'claim' else 'full'
-    return await taskrun.start_async(mode, 'ALL')
+    results: list[str] = []
+    ok_all = True
+    for g in groups:
+        try:
+            ok, msg = await taskrun.start_async(
+                mode, 'ALL', auth_dir=g.get('auth_dir'), group_name=str(g.get('name') or ''),
+            )
+        except Exception as exc:  # noqa: BLE001
+            ok_all = False
+            results.append(f"{g.get('name')}：异常：{exc}")
+            continue
+        if not ok:
+            ok_all = False
+            results.append(f"{g.get('name')}：{msg}")
+            continue
+        finished = await taskrun.wait_idle()
+        if not finished:
+            ok_all = False
+            results.append(f"{g.get('name')}：等待执行结束超时")
+        else:
+            results.append(f"{g.get('name')}：已完成")
+    return ok_all, '；'.join(results) or '没有可执行的账号'
 
 
 async def _loop() -> None:

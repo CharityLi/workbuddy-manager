@@ -492,6 +492,55 @@ def _realm_uids(realm: str | None) -> set[str] | None:
     return uids
 
 
+def _credit_income_by_hour(day: str, realm: str | None) -> dict[int, float]:
+    """收入：`kind='credit'` 流水按本地小时聚合（今天这一列的 issue #285 口径）。
+
+    与 `_credit_income_by_day` 完全同一来源，只是分桶粒度换成小时；过滤仍用
+    `ts` 范围（走索引），只有 GROUP BY 用表达式（见 `db.hour_sql` 的说明）。
+    """
+    uids = _realm_uids(realm)
+    if uids is not None and not uids:
+        return {}
+    start = db.day_start_ts(day)
+    sql = (f"SELECT {db.hour_sql('ts')} AS bucket, COALESCE(SUM(credits),0) AS income "
+           'FROM task_logs WHERE kind = \'credit\' AND ts >= ? AND ts < ?')
+    args: list = [start, start + 86400]
+    if uids is not None:
+        sql += f' AND uid IN ({",".join("?" * len(uids))})'
+        args.extend(sorted(uids))
+    sql += ' GROUP BY bucket'
+    out: dict[int, float] = {}
+    for r in db.query(sql, tuple(args)):
+        bucket = str(r['bucket'] or '')
+        if len(bucket) >= 13:
+            out[int(bucket[11:13])] = float(r['income'] or 0)
+    return out
+
+
+def _credits_hourly(day: str, realm: str | None) -> list[dict]:
+    """积分收支按小时（固定 24 桶补零，issue #285）。
+
+    支出取 `usage_hourly.credit`：它与 `usage_daily` 由同一处写入累计，
+    所以按小时求和与按天求和天然一致；收入按余额查询发生的小时归档。
+    """
+    rf = ' AND realm = ?' if realm in ('cn', 'global') else ''
+    rargs: tuple = (realm,) if rf else ()
+    expense: dict[int, float] = {}
+    for r in db.query(
+        'SELECT hour, COALESCE(SUM(credit),0) AS credit FROM usage_hourly '
+        f'WHERE day = ?{rf} GROUP BY hour',
+        (day,) + rargs,
+    ):
+        expense[int(r['hour'])] = float(r['credit'] or 0)
+    income = _credit_income_by_hour(day, realm)
+    out: list[dict] = []
+    for h in range(24):
+        inc = income.get(h, 0.0)
+        exp = expense.get(h, 0.0)
+        out.append({'day': day, 'hour': h, 'income': inc, 'expense': exp, 'net': inc - exp})
+    return out
+
+
 def _credit_income_by_day(since: str, realm: str | None) -> dict[str, float]:
     """收入：`kind='credit'` 流水按本地日聚合（见本段顶部说明）。"""
     uids = _realm_uids(realm)
@@ -506,27 +555,6 @@ def _credit_income_by_day(since: str, realm: str | None) -> dict[str, float]:
     sql += ' GROUP BY day'
     rows = db.query(sql, tuple(args))
     return {str(r['day']): float(r['income'] or 0) for r in rows if r['day']}
-
-
-def _credit_income_by_hour(day: str, realm: str | None) -> dict[int, float]:
-    """收入：`kind='credit'` 流水按本地小时聚合（`days=1` 的小时视图用）。"""
-    uids = _realm_uids(realm)
-    if uids is not None and not uids:
-        return {}
-    start = db.day_start_ts(day)
-    sql = (f"SELECT {db.hour_sql('ts')} AS bucket, COALESCE(SUM(credits),0) AS income "
-           "FROM task_logs WHERE kind = 'credit' AND ts >= ? AND ts < ?")
-    args: list = [start, start + 86400]
-    if uids is not None:
-        sql += f' AND uid IN ({",".join("?" * len(uids))})'
-        args.extend(sorted(uids))
-    sql += ' GROUP BY bucket'
-    out: dict[int, float] = {}
-    for r in db.query(sql, tuple(args)):
-        bucket = str(r['bucket'] or '')
-        if len(bucket) >= 13:
-            out[int(bucket[11:13])] = float(r['income'] or 0)
-    return out
 
 
 @router.get('/credits')
@@ -583,20 +611,13 @@ def credits_flow(days: int = 30, realm: str | None = None,
         exp = sum(r['expense'] for r in rows)
         return {'income': inc, 'expense': exp, 'net': inc - exp}
 
-    # 今日视图按小时细化：`days=1` 时「一天」只有一个点，折线看不出形状。
-    # 只有看清一天里哪几个小时在涨、哪几个小时在耗，才对得上「今天怎么花的」。
-    hourly: list[dict] = []
-    if d == 1:
-        inc_h = _credit_income_by_hour(today, realm)
-        exp_h = {int(r['hour']): float(r['credit'] or 0) for r in db.query(
-            'SELECT hour, COALESCE(SUM(credit),0) AS credit FROM usage_hourly '
-            f'WHERE day = ?{rf} GROUP BY hour',
-            (today,) + rargs,
-        )}
-        for h in range(24):
-            inc_v, exp_v = inc_h.get(h, 0.0), exp_h.get(h, 0.0)
-            hourly.append({'hour': h, 'income': inc_v, 'expense': exp_v, 'net': inc_v - exp_v})
-
+    # 范围只有一天时按小时下探（issue #285）：`daily` 只有今天一行，折线图只会
+    # 剩一个孤点，看不出「今天什么时候进、什么时候花」。沿用用量趋势图已确立的
+    # 粒度规则（days=1 → hour，固定 24 桶补零，见 /stats/hourly）。
+    # 多日范围不返回 hourly —— 响应形态与升级前逐字段一致。
+    # （`_credits_hourly` 把「收入按小时流水 + 支出按 usage_hourly」合成 24 个桶，
+    #  与面板柱状切换要的 {hour, income, expense, net} 一致。）
+    hourly = _credits_hourly(today, realm) if d == 1 else None
     return {
         'days': d,
         'from': daily[0]['day'] if daily else since,
@@ -605,7 +626,8 @@ def credits_flow(days: int = 30, realm: str | None = None,
         'week': _sum([r for r in daily if r['day'] >= week_from]),
         'total': _sum(daily),
         'daily': daily,
-        'hourly': hourly,
+        'granularity': 'hour' if hourly is not None else 'day',
+        **({'hourly': hourly} if hourly is not None else {}),
     }
 
 

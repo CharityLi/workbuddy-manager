@@ -1133,6 +1133,31 @@ def _local_uids() -> set[str]:
     return found
 
 
+@router.get('/accounts/admin-api-status')
+def account_admin_api_status(upstream_id: int | None = Query(None),
+                             user: dict = Depends(security.require_admin)) -> dict:
+    """上游「账号管理接口」（admin.enabled）开关状态，供解禁队列提示用。
+
+    revive / enable / disable 这组解封操作都依赖上游这组接口：开关没开时，
+    重新登录只换令牌、清不掉「禁用」位。前端据此把「可通过解禁队列重新登录
+    解封」换成「需先在设置开启管理接口」，避免误导用户白重登。
+
+    这里只读**本地配置文件**、不做运行时探测：运行时是否生效由「保存设置自动
+    重启」保证；若要更精确（配置已开但运行中的上游没加载到它），应参照
+    `_disable_hint` 的运行时诊断逻辑，本接口刻意保持轻量。
+
+    非默认分组通常跑在另一套容器/主机上，面板读不到它的 config.json——
+    这时返回 `enabled=None`（未知），前端就不会拿默认分组的开关状态去误导它。
+    """
+    group = _group(upstream_id)
+    if not group.get('is_default'):
+        return {'enabled': None}
+    enabled, _ = wb2api.admin_enabled_in_config()
+    # 只回开关状态，不回配置路径（`where`）——那是部署信息，前端也用不到，
+    # 最小化接口暴露面。
+    return {'enabled': enabled}
+
+
 @router.get('/accounts/credits-snapshot')
 def credits_snapshot(user: dict = Depends(security.current_user)) -> dict:
     """已登记的积分快照（只读）。
@@ -1231,14 +1256,25 @@ async def refresh_all_credits(
     }
 
 
-# 签到失败退避间隔（秒）：腾讯侧偶发「10001 签到失败，请稍后重试」，
-# 这类抖动重试一次多半就好；三档递增，避免同一时刻反复打同一个账号。
-_CHECKIN_RETRY_DELAYS = (5, 15, 60)
-
-
 def _checkin_semaphore() -> asyncio.Semaphore:
     """限制签到并发数：太高容易触发腾讯风控，太低又会拖到前端超时。"""
     return asyncio.Semaphore(config.CHECKIN_CONCURRENCY)
+
+
+# 批量签到的退避序列（issue #256）：上游偶发 `10001 签到失败，请稍后重试`，
+# 隔几秒单号重试即可成功。5s + 15s 总等待 20s，仍在面板 60s 超时内。
+_CHECKIN_RETRY_DELAYS = (5.0, 15.0)
+
+
+async def _checkin_with_retry(payload: dict, realm) -> tuple[int, str]:
+    """执行签到；仅对 -3（上游瞬时拒绝）按 5s/15s 退避重试。"""
+    code, message = await tencent.checkin(payload, realm)
+    for delay in _CHECKIN_RETRY_DELAYS:
+        if code != -3:
+            break
+        await asyncio.sleep(delay)
+        code, message = await tencent.checkin(payload, realm)
+    return code, message
 
 
 @router.post('/accounts/checkin-all')
@@ -1300,15 +1336,11 @@ async def checkin_all(upstream_id: int | None = Query(None),
             'proxy': str(raw.get('proxy') or ''),
         }
         async with sem:
-            # 失败按 5s / 15s / 60s 退避重试（上游 2.10.0 #256）：腾讯侧偶发
-            # 「10001 签到失败，请稍后重试」——那是**失败**，不是「今天已签到」，
-            # 之前直接记为成功会让用户以为签到了。重试全部失败才如实记失败。
-            code, message = await tencent.checkin(payload, realm_of(auth))
-            for delay in _CHECKIN_RETRY_DELAYS:
-                if code in (0, 10001):
-                    break
-                await asyncio.sleep(delay)
-                code, message = await tencent.checkin(payload, realm_of(auth))
+            # 传完整 auth dict：billing 域要带 X-User-Id 等身份头
+            # 瞬时拒绝（-3，上游把「10001 签到失败，请稍后重试」与「今日已签到」
+            # 区分开了）在 sem 内按 5s/15s 退避重试：放掉信号量再睡会让其他账号
+            # 涌入，重新制造并发峰值（issue #256）。重试全部失败才如实记失败。
+            code, message = await _checkin_with_retry(payload, realm_of(auth))
         ok = code in (0, 10001)
         db.add_checkin_log(uid, nickname, 'manual-batch', ok, code, message)
         return {'nickname': nickname, 'ok': ok, 'code': code, 'message': message}
@@ -1672,10 +1704,13 @@ async def task_run_start(
     body: dict = Body(...),
     user: dict = Depends(security.require_admin),
 ) -> dict:
-    """启动一次执行。body: {mode, target}。
+    """启动一次执行。body: {mode, target, confirm, upstream_id}。
 
     `full`（点亮 + 领奖）会伪造活跃上报，因此要求显式传 `confirm: true` ——
     与「领奖」区分开，避免手滑点到风险最高的那个。
+
+    `upstream_id` 选分组（issue #274）：不传 = 默认分组；其他分组要求配置了
+    本地账号目录（`_require_dir`），脚本通过 `WB2A_AUTHS` 读那一组账号。
     """
     mode = str(body.get('mode') or '').strip()
     target = str(body.get('target') or 'ALL').strip() or 'ALL'
@@ -1687,10 +1722,24 @@ async def task_run_start(
             detail='「点亮任务」会向腾讯发送活跃上报（造画布、连发对话等），'
                    '请先确认：该操作有风控风险，建议先用「预览」看清将要做的事。',
         )
+    # 分组参数严格解析：字符串 "3" 静默落到默认分组会让用户在 B 组点任务、
+    # 实际跑了 A 组的账号（且界面显示成功）——宁可报 400。
+    raw_uid = body.get('upstream_id')
+    upstream_id: int | None = None
+    if raw_uid not in (None, '', 0, '0'):
+        try:
+            upstream_id = int(raw_uid)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail='upstream_id 不合法') from None
+    group = _group(upstream_id)
+    auth_dir = _require_dir(group) if not group.get('is_default') else _group_dir(group)
     # 走线程池版本：start() 内部会解析脚本路径（脚本缺失时还要 fork docker
     # 提取，最长 60 秒），本接口是 async，同步跑它会冻住整个事件循环——
     # 连带把对外网关一起卡住。
-    ok, msg = await taskrun.start_async(mode, target)
+    ok, msg = await taskrun.start_async(
+        mode, target, auth_dir=auth_dir,
+        group_name='' if group.get('is_default') else str(group.get('name') or ''),
+    )
     if not ok:
         # 前置拒绝（脚本缺失/已有任务在跑/参数不合法）用 409 表达「状态冲突」，
         # 与「请求本身有错」（400）区分开。
@@ -1801,84 +1850,6 @@ async def account_unban(filename: str, payload: dict | None = Body(None),
     return {'ok': ok, 'queued': False, 'message': message, 'changed': changed}
 
 
-# 「账号 × 模型」主动探测的边界。单次最多 60 个组合——再多就不是"探测"而是压测，
-# 既拖慢界面也容易被上游风控。账号之间最多 4 个并发，账号内部**串行**：
-# 同一个账号并发打不同模型会互相干扰（上游按账号限流），串行才能得到干净的结论。
-_PROBE_MAX_COMBOS = 60
-_PROBE_ACCOUNT_CONCURRENCY = 4
-
-
-@router.post('/accounts/probe-models')
-async def probe_models(payload: dict = Body(...),
-                       upstream_id: int | None = Query(None),
-                       user: dict = Depends(security.require_admin)) -> dict:
-    """对「账号 × 模型」矩阵做一次真实的可用性探测。
-
-    为什么要真发请求：模型目录里有、账号也健康，不代表这个账号**能调**这个模型
-    —— 有的模型对账号有权限要求，有的只在某些版本可用。只有真发一次最小对话
-    请求才能区分「能用」「没权限」「账号失效」。
-
-    请求体：`{"files": ["a.json", ...], "models": ["glm-5.2", ...]}`。
-    留空 `files` = 该分组下全部启用账号；单个模型失败不会中断整批。
-    """
-    import time as _time
-
-    base_dir = _require_dir(_group(upstream_id))
-    models = [str(m).strip() for m in (payload.get('models') or []) if str(m).strip()]
-    if not models:
-        raise HTTPException(status_code=400, detail='至少要选一个模型')
-    files = [str(f) for f in (payload.get('files') or []) if str(f).strip()]
-    if not files:
-        files = [a['file'] for a in _list(base_dir) if a.get('enabled')]
-    if len(files) * len(models) > _PROBE_MAX_COMBOS:
-        raise HTTPException(
-            status_code=400,
-            detail=f'组合数 {len(files) * len(models)} 超过上限 {_PROBE_MAX_COMBOS}，请减少账号或模型',
-        )
-
-    sem = asyncio.Semaphore(_PROBE_ACCOUNT_CONCURRENCY)
-
-    async def one(filename: str) -> dict:
-        try:
-            raw = _load(filename, base_dir)
-        except HTTPException as exc:
-            return {'file': filename, 'nickname': filename, 'exists': False,
-                    'results': [{'model': m, 'ok': False, 'message': str(exc.detail),
-                                 'ms': 0} for m in models]}
-        acct = raw.get('account') or {}
-        auth = raw.get('auth') or {}
-        probe_auth = {
-            'access_token': auth.get('accessToken', ''),
-            'uid': acct.get('uid', ''),
-            'enterprise_id': acct.get('enterpriseId', ''),
-            'domain': auth.get('domain', ''),
-            'realm': auth.get('realm'),
-            'device_token': str(raw.get('device_token') or ''),
-            'proxy': str(raw.get('proxy') or ''),
-        }
-        results = []
-        async with sem:
-            # 账号内串行：并发打同一账号会被上游当成异常流量
-            for m in models:
-                started = _time.monotonic()
-                ok, message = await tencent.probe_account(probe_auth, m)
-                results.append({
-                    'model': m,
-                    'ok': ok,
-                    'message': message,
-                    'ms': int((_time.monotonic() - started) * 1000),
-                })
-        return {'file': filename, 'nickname': str(acct.get('nickname') or filename),
-                'exists': True, 'results': results}
-
-    accounts = await asyncio.gather(*(one(f) for f in files))
-    return {
-        'models': models,
-        'accounts': list(accounts),
-        'combos': len(files) * len(models),
-    }
-
-
 @router.post('/accounts/{filename}/test')
 async def account_test(filename: str, upstream_id: int | None = Query(None),
                        user: dict = Depends(security.require_admin)) -> dict:
@@ -1897,6 +1868,134 @@ async def account_test(filename: str, upstream_id: int | None = Query(None),
         'proxy': str(raw.get('proxy') or ''),
     })
     return {'ok': ok, 'message': message}
+
+
+# 主动探测一次最多的账号 × 模型组合数与规模上限（issue #270）。
+# 每条组合都是一次真实对话请求（max_tokens=1），上限既保护上游配额，也保证
+# 这个同步接口能在浏览器超时前跑完（每账号内串行 + 600ms 间隔）。
+_PROBE_COMBOS_MAX = 60
+_PROBE_ACCOUNTS_MAX = 20
+_PROBE_MODELS_MAX = 10
+_PROBE_ACCOUNT_GAP_SECONDS = 0.6
+_PROBE_CONCURRENCY = 4
+_PROBE_REQUEST_TIMEOUT = 30
+
+
+def _probe_model_name(raw: object) -> str:
+    """规范化模型名：去掉 `cn:` / `global:` 前缀（issue #270 的合并展示）。"""
+    name = str(raw or '').strip()
+    for prefix in ('cn:', 'global:'):
+        if name.lower().startswith(prefix):
+            name = name[len(prefix):].strip()
+            break
+    return name
+
+
+@router.post('/accounts/probe-models')
+async def probe_models(body: dict = Body(...),
+                       upstream_id: int | None = Query(None),
+                       user: dict = Depends(security.require_admin)) -> dict:
+    """账号 × 模型主动探测：一次性回答「这个号能不能用这个模型」（issue #270）。
+
+    结果分类与上游错误口径一致：ok / rate（6004 模型限流）/ credit（402 或
+    积分文案）/ auth（401 / 12153）/ no_model（11102，**不算错误**）/ error。
+
+    限流保护：同一账号内串行、每条之间 600ms；不同账号最多 4 路并发；
+    一次最多 60 条组合。看到 6004 也**不重试**（探测不能变成新的限流来源）。
+    """
+    base_dir = _require_dir(_group(upstream_id))
+    raw_accounts = body.get('accounts')
+    raw_models = body.get('models')
+    if not isinstance(raw_accounts, list) or not isinstance(raw_models, list):
+        raise HTTPException(status_code=400, detail='accounts / models 必须是数组')
+    if not raw_accounts or not raw_models:
+        raise HTTPException(status_code=400, detail='请至少选择一个账号与一个模型')
+    if len(raw_accounts) > _PROBE_ACCOUNTS_MAX:
+        raise HTTPException(status_code=400,
+                            detail=f'一次最多探测 {_PROBE_ACCOUNTS_MAX} 个账号')
+    models: list[str] = []
+    for item in raw_models:
+        name = _probe_model_name(item)
+        if not name:
+            continue
+        if len(name) > 120:
+            raise HTTPException(status_code=400, detail='模型名过长')
+        if name not in models:
+            models.append(name)
+    if not models:
+        raise HTTPException(status_code=400, detail='请至少选择一个模型')
+    if len(models) > _PROBE_MODELS_MAX:
+        raise HTTPException(status_code=400,
+                            detail=f'一次最多探测 {_PROBE_MODELS_MAX} 个模型')
+    if len(raw_accounts) * len(models) > _PROBE_COMBOS_MAX:
+        raise HTTPException(
+            status_code=400,
+            detail=(f'一次最多 {_PROBE_COMBOS_MAX} 条组合'
+                    f'（当前 {len(raw_accounts)} 个账号 × {len(models)} 个模型）；'
+                    '请分批探测'),
+        )
+
+    targets: list[dict] = []
+    seen_files: set[str] = set()
+    for item in raw_accounts:
+        filename = str(item)
+        if filename in seen_files:
+            continue
+        seen_files.add(filename)
+        raw = _load(filename, base_dir)  # 路径校验 + 不存在时报 404
+        acct = raw.get('account') or {}
+        auth = raw.get('auth') or {}
+        targets.append({
+            'file': filename,
+            'uid': str(acct.get('uid') or ''),
+            'nickname': str(acct.get('nickname') or ''),
+            'realm': realm_of(auth),
+            'auth': {
+                'access_token': auth.get('accessToken', ''),
+                'uid': str(acct.get('uid') or ''),
+                'enterprise_id': str(acct.get('enterpriseId') or ''),
+                'domain': str(auth.get('domain') or ''),
+                'realm': auth.get('realm'),
+                'device_token': str(raw.get('device_token') or ''),
+                'proxy': str(raw.get('proxy') or ''),
+            },
+        })
+
+    sem = asyncio.Semaphore(min(_PROBE_CONCURRENCY, len(targets)))
+    results: list[dict] = []
+
+    async def one(target: dict) -> None:
+        async with sem:
+            for idx, model in enumerate(models):
+                if idx:
+                    await asyncio.sleep(_PROBE_ACCOUNT_GAP_SECONDS)
+                try:
+                    detail = await asyncio.wait_for(
+                        tencent.probe_model(target['auth'], model),
+                        timeout=_PROBE_REQUEST_TIMEOUT,
+                    )
+                except asyncio.TimeoutError:
+                    detail = {'status': 'error', 'code': None,
+                              'message': f'探测超时（>{_PROBE_REQUEST_TIMEOUT}s）',
+                              'latency_ms': _PROBE_REQUEST_TIMEOUT * 1000}
+                results.append({
+                    'file': target['file'],
+                    'uid': target['uid'],
+                    'nickname': target['nickname'],
+                    'realm': target['realm'],
+                    'model': model,
+                    **detail,
+                })
+
+    await asyncio.gather(*(one(t) for t in targets))
+
+    order = {t['file']: i for i, t in enumerate(targets)}
+    model_order = {m: i for i, m in enumerate(models)}
+    results.sort(key=lambda r: (order.get(r['file'], 0), model_order.get(r['model'], 0)))
+    summary = {k: 0 for k in ('ok', 'rate', 'credit', 'auth', 'no_model', 'error')}
+    for r in results:
+        summary[r['status']] = summary.get(r['status'], 0) + 1
+    return {'results': results, 'summary': summary, 'requests': len(results)}
 
 
 async def _refresh_one_token(filename: str, base_dir: Path) -> dict:

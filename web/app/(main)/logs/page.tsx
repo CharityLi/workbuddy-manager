@@ -1,6 +1,5 @@
 'use client';
 
-import {channelOf} from '@/lib/log-channel';
 import {useCallback, useRef, useState} from 'react';
 import {ScrollText, RotateCcw, Trash2, ChevronLeft, ChevronRight} from 'lucide-react';
 import {useHeartbeat} from '@/lib/use-heartbeat';
@@ -383,8 +382,8 @@ export default function LogsPage() {
               <TableHead className="text-[11px] text-muted-foreground">{t('nav.keys')}</TableHead>
               <TableHead className="text-[11px] text-muted-foreground">IP</TableHead>
               <TableHead className="text-[11px] text-muted-foreground">{t('logs.colAccount')}</TableHead>
-              <TableHead className="text-[11px] text-muted-foreground">{t('nav.models')}</TableHead>
               <TableHead className="text-[11px] text-muted-foreground">{t('logs.colChannel')}</TableHead>
+              <TableHead className="text-[11px] text-muted-foreground">{t('nav.models')}</TableHead>
               <TableHead className="text-[11px] text-muted-foreground">{t('logs.colEffort')}</TableHead>
               <TableHead className="text-[11px] text-muted-foreground">{t('accounts.colStatus')}</TableHead>
               <TableHead className="text-[11px] text-muted-foreground">{t('logs.colFirstToken')}</TableHead>
@@ -409,20 +408,31 @@ export default function LogsPage() {
                 <TableCell className="text-xs">
                   <AccountCell account={l.account} />
                 </TableCell>
+                {/* 客户端渠道（issue #233）：按 UA 归类，用来定位「哪类客户端在把
+                    账号打进 429」。旧记录没有这一列，显示「—」而不是猜一个。 */}
+                <TableCell className="font-mono text-[11px] text-muted-foreground"
+                           title={l.channel ? `User-Agent: ${l.ua || ''}` : undefined}>
+                  {l.channel || '—'}
+                </TableCell>
                 <TableCell className="text-xs">
                   {l.model || '—'}
                   {l.mapped_model && l.mapped_model !== l.model && (
                     <span className="ml-1 text-[11px] text-muted-foreground">→{l.mapped_model}</span>
                   )}
                 </TableCell>
-                {/* 渠道：由 UA 归类。同一把密钥可能被多个客户端用，
-                    「这次是谁在打」只能从 UA 看出来。归不出来就显示 —。 */}
-                <TableCell className="text-xs text-muted-foreground">
-                  {channelOf(l.ua) || '—'}
-                </TableCell>
-                {/* 思考强度：只显示客户端**显式**传的值。空 = 没传（不是用了默认档）。 */}
-                <TableCell className="text-xs text-muted-foreground">
-                  {l.reasoning_effort || '—'}
+                {/*
+                  思考强度：客户端显式传的 reasoning_effort（low/medium/high/max…）。
+                  没传就显示「—」而不是猜默认档——同一模型不同版本的默认档可能不同，
+                  写死会把「客户端没传」误读成「客户端要了某个档位」。
+                */}
+                <TableCell className="text-xs">
+                  {l.effort ? (
+                    <Badge variant="secondary" className="rounded-full font-mono text-[10px]">
+                      {l.effort}
+                    </Badge>
+                  ) : (
+                    <span className="text-muted-foreground/50">—</span>
+                  )}
                 </TableCell>
                 <TableCell>
                   {l.status >= 200 && l.status < 300 ? (
