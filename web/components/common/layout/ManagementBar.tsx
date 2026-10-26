@@ -721,281 +721,11 @@ export function ManagementBar() {
       icon: <PlusCircle {...IconOptions} />,
       // 动作组：不带组名，只跟前面的目的地分开
       groupKey: 'actions',
-      customComponent: (
-        <div
-          data-slot="dock-quick-add"
-          data-dock-no-drag="true"
-          onClick={() => {
-            if (isAdmin) setAddOpen(true);
-          }}
-          className="w-full h-full flex items-center justify-center cursor-pointer rounded transition-colors"
-        >
-          <PlusCircle className="h-4 w-4" />
-        </div>
-      ),
     },
     {
       title: t('nav.profile'),
       icon: <User {...IconOptions} />,
       groupKey: 'actions',
-      customComponent: (
-        <>
-          <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
-            <DialogTrigger asChild>
-              <div
-                data-slot="dock-profile-trigger"
-                data-dock-no-drag="true"
-                className="w-full h-full flex items-center justify-center cursor-pointer rounded transition-colors"
-              >
-                <User className="h-4 w-4" />
-              </div>
-            </DialogTrigger>
-            <DialogContent
-              showCloseButton
-              className="max-w-[520px]"
-              onOpenAutoFocus={(event) => {
-                // 阻止自动聚焦到「退出登录」，否则按钮会出现焦点圈，易被误触
-                event.preventDefault();
-              }}
-            >
-              <DialogHeader>
-                <DialogTitle>{t('profile.title')}</DialogTitle>
-                <DialogDescription>
-                  {t('profile.desc')}
-                </DialogDescription>
-              </DialogHeader>
-              <DialogBody className="max-h-[min(72vh,560px)]">
-                {/* ★ 2026-10-23：语言切换从首页 header 挪到这里 ✓
-                    理由：header 上已经有版本/主题两个控件，语言是低频操作 ✗
-                    放进个人信息更符合"设置类"归属 ✓ */}
-                <div className="mb-3 flex items-center justify-between rounded-2xl bg-muted px-3 py-2">
-                  <span className="text-xs font-medium">{t('profile.language')}</span>
-                  <LanguageToggle />
-                </div>
-                <div className="space-y-5 px-5 pb-4">
-                  {me && (
-                    <>
-                      <div className="space-y-4">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex min-w-0 items-center gap-3">
-                            <Avatar className="size-12 rounded-full">
-                              <AvatarFallback className="bg-muted text-sm font-semibold text-foreground">
-                                {me.username?.slice(0, 2).toUpperCase() || 'U'}
-                              </AvatarFallback>
-                            </Avatar>
-                            <div className="min-w-0">
-                              <div className="truncate text-[15px] font-semibold text-foreground">
-                                {me.username}
-                              </div>
-                              <div className="truncate text-xs text-muted-foreground">
-                                WorkBuddy Manager
-                              </div>
-                              <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                                <Badge variant="secondary" className="h-5 rounded-full px-2 text-[10px]">
-                                  {me.role === 'admin' ? t('profile.roleAdmin') : t('profile.roleViewer')}
-                                </Badge>
-                              </div>
-                            </div>
-                          </div>
-                          <ConfirmDialog
-                            title={t('profile.logoutTitle')}
-                            description={t('profile.logoutDesc')}
-                            confirmText={t('profile.logout')}
-                            destructive
-                            onConfirm={handleLogout}
-                            trigger={
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 shrink-0 rounded-full text-muted-foreground hover:text-red-600"
-                              >
-                                <LogOutIcon className="size-3.5" />
-                                {t('profile.logout')}
-                              </Button>
-                            }
-                          />
-                        </div>
-
-                        {/* 吊销全部会话：与「退出登录」的区别是它**让服务端所有已签发的
-                            cookie 立即失效**，而不只是清掉本机这一个。用于怀疑会话被人
-                            拿到（在别人电脑上登过、旧设备没退、备份里有 cookie）——
-                            不必改密码（那会连带影响下游配置）。 */}
-                        <div className="mt-2 flex justify-end">
-                          <ConfirmDialog
-                            title={t('profile.revokeTitle')}
-                            description={t('profile.revokeDesc')}
-                            confirmText={t('profile.revoke')}
-                            destructive
-                            onConfirm={async () => {
-                              try {
-                                await authApi.revokeSessions();
-                                notify.ok(t('profile.revoked'));
-                                // 服务端已失效所有会话（含本机），必须回登录页
-                                setProfileOpen(false);
-                                logout();
-                              } catch (e) {
-                                notify.err(errText(e));
-                              }
-                            }}
-                            trigger={
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-8 shrink-0 rounded-full text-muted-foreground hover:text-amber-600"
-                                title={t('profile.revokeHint')}
-                              >
-                                <ShieldAlertIcon className="size-3.5" />
-                                {t('profile.revoke')}
-                              </Button>
-                            }
-                          />
-                        </div>
-
-                        <Separator />
-
-                        <div className="space-y-2">
-                          <div className="text-[11px] font-medium text-muted-foreground">{t('profile.poolOverview')}</div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <div className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-2">
-                              <Users className="size-3.5 text-foreground/60" />
-                              <span className="text-xs font-medium text-foreground">{t('profile.managedAccounts')}</span>
-                              <span className="text-xs font-semibold tabular-nums text-foreground">
-                                {accountCount === null ? (
-                                  '—'
-                                ) : (
-                                  // 不用 inView：弹窗以缩放动画挂载时，
-                                  // useInView(once) 可能判定为不可见而停在初始值 0
-                                  <CountingNumber
-                                    number={accountCount}
-                                    fromNumber={0}
-                                    transition={{stiffness: 200, damping: 25}}
-                                  />
-                                )}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-
-                        {mounted && (
-                          <div className="space-y-2">
-                            <div className="text-[11px] font-medium text-muted-foreground">{t('profile.systemSettings')}</div>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={themeUtils.toggle}
-                                className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-2 transition-colors hover:bg-muted/80"
-                              >
-                                <div className="flex items-center gap-2">
-                                  {themeUtils.getIcon('size-3.5 text-foreground/60')}
-                                  <span className="text-xs font-medium text-foreground">
-                                    {themeUtils.getSystemTheme() === SystemTheme.LIGHT ? t('theme.light') : t('theme.dark')}
-                                  </span>
-                                </div>
-                              </button>
-
-                              {/* 底栏位置：底栏是浮动的，拖到页面中部就会压住正文。
-                                  形态按既定决策保留，但给一个「别再挡我」的确定性选项。
-                                  做成 toggle 而不是两个按钮：它是二选一的状态，
-                                  两个按钮会让人以为可以同时开。 */}
-                              <button
-                                type="button"
-                                data-slot="dock-mode-toggle"
-                                aria-label={t('profile.dockLabel')}
-                                title={t('profile.dockLabel')}
-                                onClick={() => changeDockMode(dockMode === 'floating' ? 'pinned' : 'floating')}
-                                className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-2 transition-colors hover:bg-muted/80"
-                              >
-                                <div className="flex items-center gap-2">
-                                  {dockMode === 'pinned' ? (
-                                    <PinIcon className="size-3.5 text-foreground/60" />
-                                  ) : (
-                                    <MoveIcon className="size-3.5 text-foreground/60" />
-                                  )}
-                                  <span className="text-xs font-medium text-foreground">
-                                    {dockMode === 'pinned' ? t('profile.dockPinned') : t('profile.dockFloating')}
-                                  </span>
-                                </div>
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </>
-                  )}
-
-                  <div className="space-y-2">
-                    <div className="text-[11px] font-medium text-muted-foreground">{t('profile.quickLinks')}</div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Link
-                        href="https://linux.do"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-2 transition-colors hover:bg-muted/80"
-                        title={t('profile.communityTitle')}
-                      >
-                        <div className="flex items-center gap-2">
-                          <Users className="size-3.5 text-foreground/60" />
-                          <span className="text-xs font-medium text-foreground">{t('profile.community')}</span>
-                        </div>
-                      </Link>
-                      <Link
-                        href="https://github.com/Sliverkiss/workbuddy2api"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-2 transition-colors hover:bg-muted/80"
-                      >
-                        <div className="flex items-center gap-2">
-                          <FolderGit2 className="size-3.5 text-foreground/60" />
-                          <span className="text-xs font-medium text-foreground">workbuddy2api</span>
-                        </div>
-                      </Link>
-                      <Link
-                        href="https://github.com/linux-do/cdk"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-2 transition-colors hover:bg-muted/80"
-                      >
-                        <div className="flex items-center gap-2">
-                          <Link2 className="size-3.5 text-foreground/60" />
-                          <span className="text-xs font-medium text-foreground">{t('profile.uiReference')}</span>
-                        </div>
-                      </Link>
-                      <Link
-                        href="/settings"
-                        className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-2 transition-colors hover:bg-muted/80"
-                      >
-                        <div className="flex items-center gap-2">
-                          <MessageCircleIcon className="size-3.5 text-foreground/60" />
-                          <span className="text-xs font-medium text-foreground">{t('profile.help')}</span>
-                        </div>
-                      </Link>
-                    </div>
-                  </div>
-
-                  <Separator />
-
-                  <div className="space-y-2">
-                    <div className="text-xs font-medium">{t('profile.about')}</div>
-                    <div className="space-y-1.5">
-                      <div className="text-[11px] font-light text-muted-foreground">
-                        {/* 版本以后端为准（package.json 里那个没人维护，停在 1.0.0）；
-                            构建时间由 next.config 在构建时注入，不再用手写的死值。 */}
-                        {runtimeVersion
-                          ? `Version ${runtimeVersion}`
-                          : `Version ${packageJson.version}${t('profile.versionFallback')}`}
-                        {BUILD_TIME ? `, Build At ${BUILD_TIME}` : ''}
-                      </div>
-                      <div className="text-[11px] font-light leading-5 text-muted-foreground">
-                        {t('profile.aboutDesc')}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </DialogBody>
-            </DialogContent>
-          </Dialog>
-        </>
-      ),
     },
   ];
 
@@ -1229,14 +959,252 @@ export function ManagementBar() {
         </DialogContent>
       </Dialog>
 
-      {dockItems
-        .filter((it) => 'customComponent' in it && !!it.customComponent)
-        .map((it, i) => (
-          <Fragment key={`cc-${i}`}>
-            {/* 保留字号，不显示外壳：这些 customComponent 本身就是 Dialog 或内联动作 */}
-            {(it as {customComponent?: ReactNode}).customComponent}
-          </Fragment>
-        ))}
+
+      <Dialog open={profileOpen} onOpenChange={setProfileOpen}>
+        <DialogContent
+          showCloseButton
+          className="max-w-[520px]"
+          onOpenAutoFocus={(event) => {
+            // 阻止自动聚焦到「退出登录」，否则按钮会出现焦点圈，易被误触
+            event.preventDefault();
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>{t('profile.title')}</DialogTitle>
+            <DialogDescription>
+              {t('profile.desc')}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogBody className="max-h-[min(72vh,560px)]">
+            {/* ★ 2026-10-23：语言切换从首页 header 挪到这里 ✓
+                理由：header 上已经有版本/主题两个控件，语言是低频操作 ✗
+                放进个人信息更符合"设置类"归属 ✓ */}
+            <div className="mb-3 flex items-center justify-between rounded-2xl bg-muted px-3 py-2">
+              <span className="text-xs font-medium">{t('profile.language')}</span>
+              <LanguageToggle />
+            </div>
+            <div className="space-y-5 px-5 pb-4">
+              {me && (
+                <>
+                  <div className="space-y-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <Avatar className="size-12 rounded-full">
+                          <AvatarFallback className="bg-muted text-sm font-semibold text-foreground">
+                            {me.username?.slice(0, 2).toUpperCase() || 'U'}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0">
+                          <div className="truncate text-[15px] font-semibold text-foreground">
+                            {me.username}
+                          </div>
+                          <div className="truncate text-xs text-muted-foreground">
+                            WorkBuddy Manager
+                          </div>
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                            <Badge variant="secondary" className="h-5 rounded-full px-2 text-[10px]">
+                              {me.role === 'admin' ? t('profile.roleAdmin') : t('profile.roleViewer')}
+                            </Badge>
+                          </div>
+                        </div>
+                      </div>
+                      <ConfirmDialog
+                        title={t('profile.logoutTitle')}
+                        description={t('profile.logoutDesc')}
+                        confirmText={t('profile.logout')}
+                        destructive
+                        onConfirm={handleLogout}
+                        trigger={
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 shrink-0 rounded-full text-muted-foreground hover:text-red-600"
+                          >
+                            <LogOutIcon className="size-3.5" />
+                            {t('profile.logout')}
+                          </Button>
+                        }
+                      />
+                    </div>
+
+                    {/* 吊销全部会话：与「退出登录」的区别是它**让服务端所有已签发的
+                        cookie 立即失效**，而不只是清掉本机这一个。用于怀疑会话被人
+                        拿到（在别人电脑上登过、旧设备没退、备份里有 cookie）——
+                        不必改密码（那会连带影响下游配置）。 */}
+                    <div className="mt-2 flex justify-end">
+                      <ConfirmDialog
+                        title={t('profile.revokeTitle')}
+                        description={t('profile.revokeDesc')}
+                        confirmText={t('profile.revoke')}
+                        destructive
+                        onConfirm={async () => {
+                          try {
+                            await authApi.revokeSessions();
+                            notify.ok(t('profile.revoked'));
+                            // 服务端已失效所有会话（含本机），必须回登录页
+                            setProfileOpen(false);
+                            logout();
+                          } catch (e) {
+                            notify.err(errText(e));
+                          }
+                        }}
+                        trigger={
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 shrink-0 rounded-full text-muted-foreground hover:text-amber-600"
+                            title={t('profile.revokeHint')}
+                          >
+                            <ShieldAlertIcon className="size-3.5" />
+                            {t('profile.revoke')}
+                          </Button>
+                        }
+                      />
+                    </div>
+
+                    <Separator />
+
+                    <div className="space-y-2">
+                      <div className="text-[11px] font-medium text-muted-foreground">{t('profile.poolOverview')}</div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-2">
+                          <Users className="size-3.5 text-foreground/60" />
+                          <span className="text-xs font-medium text-foreground">{t('profile.managedAccounts')}</span>
+                          <span className="text-xs font-semibold tabular-nums text-foreground">
+                            {accountCount === null ? (
+                              '—'
+                            ) : (
+                              // 不用 inView：弹窗以缩放动画挂载时，
+                              // useInView(once) 可能判定为不可见而停在初始值 0
+                              <CountingNumber
+                                number={accountCount}
+                                fromNumber={0}
+                                transition={{stiffness: 200, damping: 25}}
+                              />
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {mounted && (
+                      <div className="space-y-2">
+                        <div className="text-[11px] font-medium text-muted-foreground">{t('profile.systemSettings')}</div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={themeUtils.toggle}
+                            className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-2 transition-colors hover:bg-muted/80"
+                          >
+                            <div className="flex items-center gap-2">
+                              {themeUtils.getIcon('size-3.5 text-foreground/60')}
+                              <span className="text-xs font-medium text-foreground">
+                                {themeUtils.getSystemTheme() === SystemTheme.LIGHT ? t('theme.light') : t('theme.dark')}
+                              </span>
+                            </div>
+                          </button>
+
+                          {/* 底栏位置：底栏是浮动的，拖到页面中部就会压住正文。
+                              形态按既定决策保留，但给一个「别再挡我」的确定性选项。
+                              做成 toggle 而不是两个按钮：它是二选一的状态，
+                              两个按钮会让人以为可以同时开。 */}
+                          <button
+                            type="button"
+                            data-slot="dock-mode-toggle"
+                            aria-label={t('profile.dockLabel')}
+                            title={t('profile.dockLabel')}
+                            onClick={() => changeDockMode(dockMode === 'floating' ? 'pinned' : 'floating')}
+                            className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-2 transition-colors hover:bg-muted/80"
+                          >
+                            <div className="flex items-center gap-2">
+                              {dockMode === 'pinned' ? (
+                                <PinIcon className="size-3.5 text-foreground/60" />
+                              ) : (
+                                <MoveIcon className="size-3.5 text-foreground/60" />
+                              )}
+                              <span className="text-xs font-medium text-foreground">
+                                {dockMode === 'pinned' ? t('profile.dockPinned') : t('profile.dockFloating')}
+                              </span>
+                            </div>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+
+              <div className="space-y-2">
+                <div className="text-[11px] font-medium text-muted-foreground">{t('profile.quickLinks')}</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Link
+                    href="https://linux.do"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-2 transition-colors hover:bg-muted/80"
+                    title={t('profile.communityTitle')}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Users className="size-3.5 text-foreground/60" />
+                      <span className="text-xs font-medium text-foreground">{t('profile.community')}</span>
+                    </div>
+                  </Link>
+                  <Link
+                    href="https://github.com/Sliverkiss/workbuddy2api"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-2 transition-colors hover:bg-muted/80"
+                  >
+                    <div className="flex items-center gap-2">
+                      <FolderGit2 className="size-3.5 text-foreground/60" />
+                      <span className="text-xs font-medium text-foreground">workbuddy2api</span>
+                    </div>
+                  </Link>
+                  <Link
+                    href="https://github.com/linux-do/cdk"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-2 transition-colors hover:bg-muted/80"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Link2 className="size-3.5 text-foreground/60" />
+                      <span className="text-xs font-medium text-foreground">{t('profile.uiReference')}</span>
+                    </div>
+                  </Link>
+                  <Link
+                    href="/settings"
+                    className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-2 transition-colors hover:bg-muted/80"
+                  >
+                    <div className="flex items-center gap-2">
+                      <MessageCircleIcon className="size-3.5 text-foreground/60" />
+                      <span className="text-xs font-medium text-foreground">{t('profile.help')}</span>
+                    </div>
+                  </Link>
+                </div>
+              </div>
+
+              <Separator />
+
+              <div className="space-y-2">
+                <div className="text-xs font-medium">{t('profile.about')}</div>
+                <div className="space-y-1.5">
+                  <div className="text-[11px] font-light text-muted-foreground">
+                    {/* 版本以后端为准（package.json 里那个没人维护，停在 1.0.0）；
+                        构建时间由 next.config 在构建时注入，不再用手写的死值。 */}
+                    {runtimeVersion
+                      ? `Version ${runtimeVersion}`
+                      : `Version ${packageJson.version}${t('profile.versionFallback')}`}
+                    {BUILD_TIME ? `, Build At ${BUILD_TIME}` : ''}
+                  </div>
+                  <div className="text-[11px] font-light leading-5 text-muted-foreground">
+                    {t('profile.aboutDesc')}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </DialogBody>
+        </DialogContent>
+      </Dialog>
 
       <AddAccountDialog
         open={addOpen}
