@@ -172,6 +172,11 @@ class PostParamLocationAuditTest(unittest.TestCase):
         '/api/accounts/{filename}/checkin': {'upstream_id'},
         '/api/accounts/{filename}/test': {'upstream_id'},
         '/api/accounts/{filename}/refresh': {'upstream_id'},
+        # 解禁队列：把单个账号放进/踢出解禁队列，同样按分组作用。
+        # 账号×模型探测：指定在哪个分组的账号上跑矩阵。
+        '/api/accounts/probe-models': {'upstream_id'},
+        '/api/accounts/{filename}/unban': {'upstream_id'},
+        '/api/accounts/{filename}/unban/revive': {'upstream_id'},
         '/api/accounts/{filename}/clear-cooling': {'upstream_id'},
         '/api/accounts/{filename}/force-cooling': {'upstream_id'},
         '/api/accounts/{filename}/note': {'upstream_id'},
