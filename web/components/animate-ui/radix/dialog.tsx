@@ -208,7 +208,10 @@ function DialogFooter({className, ...props}: DialogFooterProps) {
     <div
       data-slot="dialog-footer"
       className={cn(
-          'flex flex-row justify-end gap-2 px-6 py-4 bg-background',
+          // `flex-wrap`：按钮文字长（翻译后）/ 窗口窄时改为换行，而不是被
+          // 弹窗的 `overflow-hidden` 从右边裁掉半个按钮（真机上复现过：英文
+          // 或亚洲语言把「保存」撑宽后，右按钮只剩一半）。
+          'flex flex-row flex-wrap items-center justify-end gap-2 px-6 py-4 bg-background',
           className,
       )}
       {...props}
