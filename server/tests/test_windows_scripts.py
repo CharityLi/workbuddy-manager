@@ -139,7 +139,9 @@ class GitAttributesTest(unittest.TestCase):
         offenders = []
         for path in _ROOT.rglob('*.ps1'):
             parts = set(path.parts)
-            if parts & {'.git', 'node_modules', '.next', '.tools', '.runtime', 'dist'}:
+            # `.venv` 也要跳过：里面是 venv 自己生成的 Activate.ps1，不归本仓管，
+            # 也不可能给它加 BOM（重建 venv 就又变回去）。
+            if parts & {'.git', 'node_modules', '.next', '.tools', '.runtime', 'dist', '.venv'}:
                 continue
             if not path.read_bytes().startswith(bytes([0xEF, 0xBB, 0xBF])):
                 offenders.append(str(path.relative_to(_ROOT)))

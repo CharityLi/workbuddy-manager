@@ -284,11 +284,15 @@ class UpdaterEnvInjectionTest(_Base):
             seen.update(kwargs.get('env') or {})
             return _FakeProc()
 
+        # ⚠️ LOCK_FILE 必须一起打桩：不打桩时 start_update 会在**真实** data/ 下建
+        # update.lock，内容正是 _FakeProc.pid=1（pid 1 永远活着）⇒ 之后每次更新都被
+        # 判「已有更新任务正在执行」，真实功能直接废掉（2026-10-26 实际踩到）。
         with mock.patch.object(updater, '_updater_script', return_value=script), \
                 mock.patch.object(updater, '_lock_active', return_value=False), \
                 mock.patch.object(updater.subprocess, 'Popen', fake_popen), \
                 mock.patch.object(updater, '_write_initial_status'), \
                 mock.patch.object(updater, 'STATUS_FILE', self.root / 'status.json'), \
+                mock.patch.object(updater, 'LOCK_FILE', self.root / 'update.lock'), \
                 mock.patch.object(updater, 'LOG_FILE', self.root / 'update.log'):
             ok, message = updater.start_update('manager')
         self.assertTrue(ok, message)
