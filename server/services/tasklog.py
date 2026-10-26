@@ -643,14 +643,62 @@ def _wrong_log_file_hint() -> str:
     )
 
 
+def _log_sources() -> list[tuple[str, Path]]:
+    """任务日志来源：[('', 默认上游日志), ('流水账号', 该分组的 gateway.err.log), ...]
+
+    多分组上线后，每个独立实例各有自己的 data 目录与 stderr 日志；只读默认
+    那一个文件，其他分组的任务记录就永远进不来（页面上看不到流水账号）。
+    """
+    out: list[tuple[str, Path]] = [('', Path(config.WB2API_LOG_FILE))]
+    try:
+        rows = db.query('SELECT name, usage_file FROM upstreams')
+    except Exception:  # noqa: BLE001
+        rows = []
+    for r in rows:
+        d = dict(r)
+        uf = (d.get('usage_file') or '').strip()
+        if not uf:
+            continue
+        f = Path(uf).parent / 'gateway.err.log'
+        if f.is_file() and f != out[0][1]:
+            out.append((str(d.get('name') or '').strip(), f))
+    return out
+
+
+def _tag_group(events: list[dict], group: str) -> None:
+    """给同一批事件打上分组前缀，并重算去重键（不同分组的同名任务不能互相吞）。"""
+    if not group:
+        return
+    for e in events:
+        e['message'] = f'[{group}] {e["message"]}'
+        e['dedup_key'] = hashlib.sha1(
+            f'{e["ts"]}|{e["kind"]}|{e["uid"]}|{e["message"]}'.encode('utf-8')
+        ).hexdigest()
+
+
 async def _collect_once(limit: int = TAIL_LINES) -> tuple[int, int]:
-    """读一次容器日志并入库，返回 (解析到的任务行数, 新增条数)。"""
-    lines = await asyncio.to_thread(wb2api.read_container_logs, limit, True)
-    events = parse_lines(lines)
-    if not events:
-        return 0, 0
-    added = await asyncio.to_thread(db.add_task_logs, events)
-    return len(events), added
+    """读一次日志并入库，返回 (解析到的任务行数, 新增条数)。"""
+    if config.WB2API_MODE != 'native':
+        lines = await asyncio.to_thread(wb2api.read_container_logs, limit, True)
+        events = parse_lines(lines)
+        if not events:
+            return 0, 0
+        added = await asyncio.to_thread(db.add_task_logs, events)
+        return len(events), added
+
+    parsed_total = added_total = 0
+    for group, path in _log_sources():
+        try:
+            text = await asyncio.to_thread(path.read_text, 'utf-8', 'replace')
+        except Exception:  # noqa: BLE001
+            continue
+        events = parse_lines(text.splitlines()[-limit:])
+        if not events:
+            continue
+        _tag_group(events, group)
+        parsed_total += len(events)
+        added_total += await asyncio.to_thread(db.add_task_logs, events)
+    return parsed_total, added_total
 
 
 async def _loop() -> None:
