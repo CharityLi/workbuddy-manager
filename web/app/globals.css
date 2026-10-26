@@ -207,6 +207,33 @@
     @apply border-border outline-ring/50;
   }
 
+  html {
+    /*
+     * 点按高亮（2026-10-26 修复「移动端弹窗一点就闪框」）
+     *
+     * iOS Safari 与 Android Chrome 在**手指按下**时会自动给被点的元素铺一层
+     * 半透明灰/蓝块（`-webkit-tap-highlight-color`），松手即消失。在一屏都是
+     * 按钮、输入框、列表项的弹窗里，这层块会一块接一块地闪，看起来就像「弹窗
+     * 在闪框」。它不是任何组件写的样式，所以查组件代码永远找不到。
+     *
+     * 全局关掉：点击反馈交给各组件自己的 `active:scale/opacity` 与 hover 态，
+     * 那些是可控的、也只作用在我们希望的位置。
+     */
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /*
+   * 触摸/鼠标焦点不画轮廓，只有键盘焦点（:focus-visible）才画。
+   *
+   * 为什么需要：Radix 打开弹窗时会把焦点移到内容容器（`tabindex="-1"` 的
+   * 那层 div），而 WebKit 对**程序聚焦**的元素同样会画一圈 outline —— 表现为
+   * 点开弹窗的瞬间沿弹窗边缘闪一圈框。全局兜住这一类，键盘用户的可见焦点
+   * 完全不受影响（依然走 :focus-visible）。
+   */
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+
   body {
     @apply bg-background text-foreground;
   }
