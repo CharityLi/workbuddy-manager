@@ -238,7 +238,7 @@ export function DockNav({
           'rounded-[calc(16px*var(--dock-scale,1))]',
           pillLeft !== null
             ? 'left-[var(--pill-left)]'
-            : 'left-[calc(var(--dock-index)*var(--dock-step)+3px)]',
+            : 'left-[calc(var(--dock-index)*var(--dock-step)+3px*var(--dock-scale,1))]',
           'bg-dock-pill',
           dragging
             ? 'transition-[left] duration-75 ease-out'

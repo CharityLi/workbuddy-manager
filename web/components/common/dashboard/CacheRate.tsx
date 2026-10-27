@@ -33,16 +33,25 @@ export function CacheRate({className}: {className?: string}) {
 
   useEffect(() => {
     let alive = true;
-    statsApi
-      .cacheRate(1)
-      .then((d) => {
-        if (alive) setData(d);
-      })
-      .catch(() => {
-        if (alive) setFailed(true);
-      });
+    const load = () => {
+      statsApi
+        .cacheRate(1)
+        .then((d) => {
+          if (!alive) return;
+          setData(d);
+          setFailed(false);
+        })
+        .catch(() => {
+          if (alive) setFailed(true);
+        });
+    };
+    load();
+    // 页面本身 30 秒刷一次，这块以前只在挂载时取一次 ⇒ 跨零点或换天后
+    // 一直显示旧数字，看着像「不跟随每日更新」。
+    const timer = setInterval(load, 30000);
     return () => {
       alive = false;
+      clearInterval(timer);
     };
   }, []);
 
