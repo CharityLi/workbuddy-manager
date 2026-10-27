@@ -1616,6 +1616,7 @@ def task_logs(
     kind: str | None = None,
     days: int | None = None,
     realm: str | None = None,
+    group: str | None = None,
     user: dict = Depends(security.current_user),
 ) -> dict:
     """上游自动任务留痕（猫猫旅行 / 活跃上报 / 自动签到 / 保活）。
@@ -1628,7 +1629,7 @@ def task_logs(
     """
     limit = max(1, min(int(limit), 500))
     offset = max(0, min(int(offset), 10_000_000))
-    logs = db.list_task_logs(limit=limit, uid=uid, kind=kind, offset=offset, days=days)
+    logs = db.list_task_logs(limit=limit, uid=uid, kind=kind, offset=offset, days=days, group=group)
 
     # 按版本过滤（realm 为空则不过滤）。日志表无 realm 列，按账号表映射 uid
     realm_map = _realm_uid_filter(realm)
@@ -1654,8 +1655,8 @@ def task_logs(
     # 筛选栏是否渲染，点进一个没有记录的类型时它就变成 0 → **整条筛选栏消失**，
     # 用户再也切不回「全部」，只能刷新页面。
     # 也就是说：筛选栏的可见性绝不能依赖筛选结果本身。
-    stats = db.task_log_stats(days=days)
-    total = db.count_task_logs(uid=uid, kind=kind, days=days)
+    stats = db.task_log_stats(days=days, group=group)
+    total = db.count_task_logs(uid=uid, kind=kind, days=days, group=group)
     if realm_map is not None:
         # 版本过滤只能按行做（日志表没有 realm 列）。注意这里**不带 kind**：
         # 要的就是「该版本下所有类型」的分布。
@@ -1683,6 +1684,7 @@ def task_logs(
         'total': total,
         'stats': stats,
         'kinds': tasklog.KIND_LABELS,
+        'groups': db.task_log_groups(days=days),
         'collector': tasklog.state(),
     }
 

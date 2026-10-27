@@ -165,6 +165,8 @@ export default function TasksPage() {
    */
   const [checkinDays, setCheckinDays] = useState('7');
   const [taskFilter, setTaskFilter] = useState<string>('all');
+  /** 分组筛选：默认「全部」，即所有分组一起看 */
+  const [taskGroup, setTaskGroup] = useState<string>('all');
   const [taskDays, setTaskDays] = useState('7');
   const [collectBusy, setCollectBusy] = useState(false);
   /**
@@ -213,8 +215,9 @@ export default function TasksPage() {
         undefined,
         Number(taskDays),
         realm,
+        taskGroup === 'all' ? undefined : taskGroup,
       ),
-  }, [realm], [checkinDays, taskFilter, taskDays, taskLimit]);
+  }, [realm], [checkinDays, taskFilter, taskDays, taskLimit, taskGroup]);
 
   /**
    * 「上游原始日志」是**配件**面板，单独一个 hook。
@@ -666,6 +669,27 @@ export default function TasksPage() {
         {hasAnyTask && (
           <div className="flex shrink-0 flex-wrap items-center gap-1.5 px-4 pb-3">
             <Filter className="h-3 w-3 text-muted-foreground" />
+            {(values.tasks?.groups ?? []).length > 0 && (
+              <>
+                {[{id: 'all', label: t('common.all')},
+                  ...(values.tasks?.groups ?? []).map((g) => ({id: g, label: g}))].map((item) => (
+                  <button
+                    key={`g-${item.id}`}
+                    type="button"
+                    onClick={() => setTaskGroup(item.id)}
+                    className={
+                      'rounded-full px-2.5 py-1 text-[11px] transition-colors ' +
+                      (taskGroup === item.id
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-muted text-muted-foreground hover:text-foreground')
+                    }
+                  >
+                    {item.label}
+                  </button>
+                ))}
+                <span className="mx-1 h-3 w-px bg-border" />
+              </>
+            )}
             {[
               {id: 'all', label: t('common.all')},
               // 类型名走本地字典；后端新增的类型回退显示它给的名字

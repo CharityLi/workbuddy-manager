@@ -1399,6 +1399,27 @@ def _task_log_where(
     return ((' WHERE ' + ' AND '.join(where)) if where else '', args)
 
 
+def _task_group_clause(group: str | None) -> tuple[str, list]:
+    """按 `[分组名] ` 前缀筛任务记录（多分组上线后才有这个前缀）。"""
+    if not group:
+        return '', []
+    return ' AND message LIKE ?', [f'[{group}] %']
+
+
+def task_log_groups(days: int | None = None) -> list[str]:
+    """记录里出现过的分组名，供前端做筛选器。"""
+    clause, args = _task_log_where(days=days)
+    rows = query(
+        "SELECT DISTINCT substr(message, 2, instr(substr(message, 2), ']') - 1) AS g "
+        f"FROM task_logs{clause} AND message LIKE '[%] %' ORDER BY g",
+        args,
+    )
+    # 只有真正存在的上游分组才算「分组」：message 里还有 `[账号名]` 这类前缀，
+    # 不按 upstreams 过滤会把账号名混进分组筛选器。
+    known = {str(r['name']) for r in query('SELECT name FROM upstreams') if r['name']}
+    return [r['g'] for r in rows if r['g'] in known]
+
+
 def list_task_logs(
     limit: int = 500,
     uid: str | None = None,
@@ -1406,8 +1427,11 @@ def list_task_logs(
     *,
     offset: int = 0,
     days: int | None = None,
+    group: str | None = None,
 ) -> list[dict]:
     clause, args = _task_log_where(uid, kind, days)
+    g_clause, g_args = _task_group_clause(group)
+    clause, args = clause + g_clause, (*args, *g_args)
     rows = query(
         f'SELECT * FROM task_logs{clause} ORDER BY ts DESC, id DESC LIMIT ? OFFSET ?',
         (*args, min(2000, max(1, limit)), max(0, int(offset))),
@@ -1430,6 +1454,7 @@ def count_task_logs(
     uid: str | None = None,
     kind: str | None = None,
     days: int | None = None,
+    group: str | None = None,
 ) -> int:
     """当前筛选下的总条数（分页用）。
 
@@ -1437,16 +1462,20 @@ def count_task_logs(
     会出现「徽章说 2200 条、实际只能看到 500 条」且更早记录翻不到的情况。
     """
     clause, args = _task_log_where(uid, kind, days)
+    g_clause, g_args = _task_group_clause(group)
+    clause, args = clause + g_clause, (*args, *g_args)
     row = query_one(f'SELECT COUNT(*) AS n FROM task_logs{clause}', args)
     return int(row['n']) if row else 0
 
 
-def task_log_stats(days: int | None = None) -> dict:
+def task_log_stats(days: int | None = None, group: str | None = None) -> dict:
     """按类型汇总条数与累计积分，用于页面上方的概览。
 
     days 让概览与列表的时间范围保持一致，否则筛选后数字会对不上。
     """
     clause, args = _task_log_where(days=days)
+    g_clause, g_args = _task_group_clause(group)
+    clause, args = clause + g_clause, (*args, *g_args)
     rows = query(
         'SELECT kind, COUNT(*) AS n, COALESCE(SUM(credits), 0) AS credits '
         f'FROM task_logs{clause} GROUP BY kind',

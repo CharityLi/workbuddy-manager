@@ -1050,6 +1050,8 @@ export interface TaskLog {
 }
 
 export interface TaskLogResponse {
+  /** 记录里出现过的上游分组（用于筛选） */
+  groups?: string[];
   logs: TaskLog[];
   /** 当前筛选下的总条数（分页用；与 stats.total 在未筛选时一致） */
   total: number;
@@ -1059,7 +1061,9 @@ export interface TaskLogResponse {
     total_credits: number;
   };
   kinds: Record<string, string>;
-  collector: {at?: number; parsed?: number; added?: number; error?: string};
+  collector: {at?: number; parsed?: number; added?: number; error?: string  /** 记录里出现过的上游分组（用于筛选） */
+  groups?: string[];
+};
 }
 
 /**

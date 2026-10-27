@@ -336,8 +336,8 @@ export const accountApi = {
     get<CheckinLogPage>('/api/checkin-logs', {limit, offset, uid, days, realm}),
   clearCheckinLogs: () => post<{ok: boolean}>('/api/checkin-logs/clear'),
   /** 自动任务记录（分页）。kind / days 为筛选条件 */
-  taskLogs: (limit = 20, offset = 0, kind?: string, uid?: string, days?: number, realm?: Realm) =>
-    get<TaskLogResponse>('/api/task-logs', {limit, offset, kind, uid, days, realm}),
+  taskLogs: (limit = 20, offset = 0, kind?: string, uid?: string, days?: number, realm?: Realm, group?: string) =>
+    get<TaskLogResponse>('/api/task-logs', {limit, offset, kind, uid, days, realm, group}),
   collectTaskLogs: () => post<{ok: boolean; parsed: number; added: number}>('/api/task-logs/collect'),
   clearTaskLogs: () => post<{ok: boolean}>('/api/task-logs/clear'),
   upstreamLogs: (limit = 200) =>
